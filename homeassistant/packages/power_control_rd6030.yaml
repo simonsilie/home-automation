@@ -1,0 +1,310 @@
+# Überschussladung RD6030W mit Priorität Soyosource (Home Assistant Paket)
+#
+# Einbinden (configuration.yaml):
+#   homeassistant:
+#     packages: !include_dir_named packages/
+# Diese Datei nach <config>/packages/power_control_rd6030.yaml kopieren.
+#
+# Secrets in secrets.yaml:
+#   rd6030w_host: <IP des Wi‑Fi‑Dongles / riden-dongle>
+#
+# Modbus-Register: RD60xx-üblich (Spannung/Strom Soll 8/9, Ist 10/11, Ausgang 18).
+# Andere Firmware / Dongle: Adressen & Skalierung in der Modbus-Sektion anpassen.
+#
+# --- Konzept: beide Geräte am Netz (gemeinsamer PCC) ---
+# Soyosource (WR) und RD6030W (AC-Eingang Netzteil) können dieselbe Hausinstallation und damit
+# dieselbe Zähler-Wirkleistung teilen:
+#   - Einspeisung WR → Zähler wird eher „negativ“ / weniger Bezug.
+#   - Laden RD6030W → zusätzlicher Bezug am gleichen Messpunkt.
+# Es gibt keine getrennte „versteckte“ DC-Hausinsel für das Netzteil: Sobald RD6030 lädt,
+# wirkt das wie zusätzlicher Hausverbrauch auf den gleichen Sensor wie der Soyosource-Limiter.
+# Dadurch kann sich bei zwei geschlossenen Kreisen Pendeln einstellen (beide nutzen denselben,
+# oft verzögerten Istwert). Mit Totband + Netzkopplungs-Marge + Rampe wird das entschärft.
+#
+# RD6030 lädt hier nur bei verbleibendem Export (> Totband + Marge) und wenn der WR bereits
+# nahe seinem Limit ist — Bezug vom öffentlichen Netz zum Laden ohne Überschuss ist nicht Ziel.
+#
+# Zähler: sensor.stromzaehler_ir_wirkleistung (positiv = Bezug, negativ = Einspeisung)
+# Soyosource: sensor.soyosource_victron_esp32_limiter_sollleistung,
+#             number.soyosource_victron_esp32_maximale_sollleistung
+#
+# Sicherheit / Elektrik:
+# - Ladespannung/-strom am RD6030W und per input_number begrenzen; BMS- Abschaltung beachten.
+# - Wenn dieselbe Batterie parallel vom Victron-MPPT geladen wird: Ladequellen koordinieren
+#   (Summenstrom, Relais, separate Strings) — nicht nur diese Automation.
+
+input_boolean:
+  rd6030_surplus_charge_master:
+    name: RD6030 Überschussladen (gemeinsamer Netzanschluss)
+    icon: mdi:battery-charging-high
+
+input_number:
+  rd6030_export_deadband_w:
+    name: RD6030 Export-Totband
+    min: 0
+    max: 500
+    step: 10
+    unit_of_measurement: W
+    mode: box
+    initial: 100
+  rd6030_grid_coupling_margin_w:
+    name: RD6030 Netzkopplungs-Marge
+    min: 0
+    max: 2000
+    step: 25
+    unit_of_measurement: W
+    mode: box
+    initial: 75
+  rd6030_max_charge_current_a:
+    name: RD6030 max. Ladestrom
+    min: 0
+    max: 30
+    step: 0.5
+    unit_of_measurement: A
+    mode: box
+    initial: 15
+  rd6030_current_step_a:
+    name: RD6030 Stromschritt (RAMPE)
+    min: 0.1
+    max: 5
+    step: 0.1
+    unit_of_measurement: A
+    mode: box
+    initial: 0.5
+  rd6030_limiter_cap_tolerance_w:
+    name: RD6030 Soyosource Cap-Toleranz
+    min: 5
+    max: 200
+    step: 5
+    unit_of_measurement: W
+    mode: box
+    initial: 25
+  rd6030_max_charge_voltage_v:
+    name: RD6030 max. Ladespannung (Sicherheit)
+    min: 12
+    max: 65
+    step: 0.1
+    unit_of_measurement: V
+    mode: box
+    initial: 58.4
+  rd6030_min_output_voltage_v:
+    name: RD6030 min. Ausgangsspannung (I-Berechnung)
+    min: 1
+    max: 60
+    step: 0.5
+    unit_of_measurement: V
+    mode: box
+    initial: 12
+
+modbus:
+  - name: rd6030
+    type: tcp
+    host: !secret rd6030w_host
+    port: 502
+    message_wait_milliseconds: 30
+    timeout: 5
+    numbers:
+      - name: "RD6030 charge voltage"
+        unique_id: rd6030_charge_voltage_set
+        slave: 1
+        address: 8
+        input_type: holding
+        data_type: uint16
+        min: 0
+        max: 60
+        step: 0.01
+        scale: 0.01
+        offset: 0
+        precision: 2
+        unit_of_measurement: V
+        device_class: voltage
+      - name: "RD6030 charge current"
+        unique_id: rd6030_charge_current_set
+        slave: 1
+        address: 9
+        input_type: holding
+        data_type: uint16
+        min: 0
+        max: 30
+        step: 0.01
+        scale: 0.01
+        offset: 0
+        precision: 2
+        unit_of_measurement: A
+        device_class: current
+    sensors:
+      - name: "RD6030 output voltage"
+        unique_id: rd6030_output_voltage_measure
+        slave: 1
+        address: 10
+        input_type: holding
+        data_type: uint16
+        scale: 0.01
+        unit_of_measurement: V
+        device_class: voltage
+        state_class: measurement
+      - name: "RD6030 output current"
+        unique_id: rd6030_output_current_measure
+        slave: 1
+        address: 11
+        input_type: holding
+        data_type: uint16
+        scale: 0.01
+        unit_of_measurement: A
+        device_class: current
+        state_class: measurement
+    switches:
+      - name: "RD6030 output enable"
+        unique_id: rd6030_output_enable_switch
+        slave: 1
+        address: 18
+        write_type: holding
+        command_on: 1
+        command_off: 0
+        verify_state: true
+
+template:
+  - sensor:
+      - name: "Grid export surplus"
+        unique_id: power_steuerung_grid_export_surplus
+        unit_of_measurement: W
+        device_class: power
+        state_class: measurement
+        state: >
+          {% set p = states('sensor.stromzaehler_ir_wirkleistung') | float(0) %}
+          {{ [0.0, 0.0 - p] | max | round(0) }}
+        availability: >
+          {{ states('sensor.stromzaehler_ir_wirkleistung') not in ['unknown', 'unavailable', 'none', ''] }}
+  - binary_sensor:
+      - name: "Soyosource limiter at cap"
+        unique_id: power_steuerung_soyosource_at_cap
+        state: >
+          {% set demand = states('sensor.soyosource_victron_esp32_limiter_sollleistung') | float(0) %}
+          {% set cap = states('number.soyosource_victron_esp32_maximale_sollleistung') | float(0) %}
+          {% set tol = states('input_number.rd6030_limiter_cap_tolerance_w') | float(25) %}
+          {{ demand >= (cap - tol) if cap > 0 else false }}
+        availability: >
+          {{ states('sensor.soyosource_victron_esp32_limiter_sollleistung') not in ['unknown', 'unavailable']
+             and states('number.soyosource_victron_esp32_maximale_sollleistung') not in ['unknown', 'unavailable'] }}
+
+automation:
+  - id: power_steuerung_rd6030_follow_surplus
+    alias: "RD6030 Überschussladen (Soyosource zuerst)"
+    description: >
+      RD6030 und Soyosource nutzen denselben Netzzähler-Istwert: Ladestrom nur wenn Export über
+      Totband plus Netzkopplungs-Marge liegt und der WR nahe Maximale Sollleistung ist.
+      Sonst Rampe runter. Sicherheit: Abbruch wenn Ausgangsspannung über „RD6030 max. Ladespannung“.
+    mode: restart
+    trigger:
+      - trigger: time_pattern
+        seconds: "/30"
+    action:
+      - choose:
+          - conditions:
+              - condition: state
+                entity_id: input_boolean.rd6030_surplus_charge_master
+                state: "off"
+            sequence:
+              - service: number.set_value
+                target:
+                  entity_id: number.rd6030_charge_current
+                data:
+                  value: 0
+              - service: switch.turn_off
+                target:
+                  entity_id: switch.rd6030_output_enable
+        default:
+          - variables:
+              export_w: "{{ states('sensor.grid_export_surplus') | float(0) }}"
+              deadband: "{{ states('input_number.rd6030_export_deadband_w') | float(100) }}"
+              margin: "{{ states('input_number.rd6030_grid_coupling_margin_w') | float(75) }}"
+              charge_thr: "{{ (deadband | float(0)) + (margin | float(0)) }}"
+              max_a: "{{ states('input_number.rd6030_max_charge_current_a') | float(15) }}"
+              step_a: "{{ states('input_number.rd6030_current_step_a') | float(0.5) }}"
+              max_v: "{{ states('input_number.rd6030_max_charge_voltage_v') | float(58.4) }}"
+              v_min: "{{ states('input_number.rd6030_min_output_voltage_v') | float(12) }}"
+              v_meas: "{{ states('sensor.rd6030_output_voltage') | float(12) }}"
+              v_safe: "{{ [v_meas | float(12), v_min | float(12)] | max }}"
+              cur: "{{ states('number.rd6030_charge_current') | float(0) }}"
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ (v_meas | float(0)) > (max_v | float(65)) }}"
+                sequence:
+                  - service: number.set_value
+                    target:
+                      entity_id: number.rd6030_charge_current
+                    data:
+                      value: 0
+                  - service: switch.turn_off
+                    target:
+                      entity_id: switch.rd6030_output_enable
+              - conditions:
+                  - condition: template
+                    value_template: >
+                      {{ (export_w | float(0)) > (charge_thr | float(0))
+                         and is_state('binary_sensor.soyosource_limiter_at_cap', 'on') }}
+                sequence:
+                  - variables:
+                      target_a: "{{ (((export_w | float(0)) - (charge_thr | float(0))) / (v_safe | float(12))) | round(2) }}"
+                      target_clamped: "{{ [[target_a | float(0), 0] | max, max_a | float(30)] | min }}"
+                      next_i: >
+                        {% set tc = target_clamped | float(0) %}
+                        {% set c = cur | float(0) %}
+                        {% set s = step_a | float(0.5) %}
+                        {% set ma = max_a | float(30) %}
+                        {% if tc > c %}
+                          {{ [[c + s, tc] | min, ma] | min | round(2) }}
+                        {% elif tc < c %}
+                          {{ [c - s, tc] | max | round(2) }}
+                        {% else %}
+                          {{ c | round(2) }}
+                        {% endif %}
+                  - service: number.set_value
+                    target:
+                      entity_id: number.rd6030_charge_current
+                    data:
+                      value: "{{ next_i }}"
+                  - if:
+                      - condition: template
+                        value_template: "{{ (next_i | float(0)) > 0 }}"
+                    then:
+                      - service: switch.turn_on
+                        target:
+                          entity_id: switch.rd6030_output_enable
+                    else:
+                      - service: switch.turn_off
+                        target:
+                          entity_id: switch.rd6030_output_enable
+            default:
+              - variables:
+                  next_down: "{{ [(cur | float(0)) - (step_a | float(0.5)), 0] | max | round(2) }}"
+              - service: number.set_value
+                target:
+                  entity_id: number.rd6030_charge_current
+                data:
+                  value: "{{ next_down }}"
+              - if:
+                  - condition: template
+                    value_template: "{{ (next_down | float(0)) <= 0 }}"
+                then:
+                  - service: switch.turn_off
+                    target:
+                      entity_id: switch.rd6030_output_enable
+
+  - id: power_steuerung_rd6030_master_off_cleanup
+    alias: "RD6030 Aus bei Master AUS"
+    mode: single
+    trigger:
+      - trigger: state
+        entity_id: input_boolean.rd6030_surplus_charge_master
+        to: "off"
+    action:
+      - service: number.set_value
+        target:
+          entity_id: number.rd6030_charge_current
+        data:
+          value: 0
+      - service: switch.turn_off
+        target:
+          entity_id: switch.rd6030_output_enable

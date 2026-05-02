@@ -1,0 +1,239 @@
+# ESPHome: Ein ESP32 → RS485 (Soyosource GTN Limiter) + VE.Direct (Victron MPPT)
+#
+# Quellen / Komponenten:
+#   - Soyosource: github.com/syssi/esphome-soyosource-gtn-virtual-meter (RS485 4800 baud)
+#   - Victron: github.com/KinDR007/VictronMPPT-ESPHOME (VE.Direct 19200 baud)
+#
+# Unterstützte Wechselrichter u. a.: GTN-*LIM* mit RS485 (siehe README syssi).
+#
+# --- RS485 zum Soyosource (typisch Modul HW-0519 / MAX485) ---
+#   - Inverter A/B ↔ Modul A/B (Polarität bei Ausfall tauschen)
+#   - Modul GND ↔ ESP GND (gemeinsame Referenz mit dem DC-System sauber führen)
+#   - Modul VCC mit 3,3 V speisen (TTL-Pegel zum ESP dann 3,3 V — siehe syssi README)
+#   - Modul TX/RX ↔ RS485-TX/RS485-RX wie unten substitutiert
+#   - DE/RE: Viele Breakout-Boards verbinden DE+RE; ohne automatische Flusssteuerung
+#     ggf. auf Senden legen (Board-Schaltung beachten). syssi optional: flow_control_pin
+#
+# --- Victron VE.Direct (JST-PH) ---
+#   - GND ↔ GND
+#   - Victron TX → ESP RX (${pin_ve_rx}); Victron RX oft ungenutzt (nur Mitlesen)
+#   - Victron nicht über VE.Direct-5V den ESP versorgen (Strom zu gering)
+#   - TX-Pegel 3,3 V oder 5 V — bei 5 V Pegelanpassung / Teiler (Victron FAQ)
+#
+# --- Netztopologie (Limiter-Regelkreis) ---
+# Soyosource und RD6030W können beide am gleichen Haus-/Netzanschluss hängen:
+#   - WR speist AC ein → wirkt wie Erzeugung am PCC (reduziert Bezug / erhöht Einspeisung).
+#   - RD6030W zieht AC vom Netz → zusätzliche Last am PCC (erhöht Bezug / senkt Einspeisung).
+# Der virtuelle Zähler liest genau EINE HA-Leistungs-Entity; diese muss der gleiche Messpunkt
+# sein, an dem beide Effekte sichtbar sind (typisch Hauptzähler Wirkleistung). Dann „sieht“ der
+# Limiter auch RD6030-Last automatisch mit — gekoppelt über dieselbe Messeinrichtung wie HA/RD6030.
+#
+# Home Assistant: Entity für Hausbezugsleistung im Subst eintragen.
+
+substitutions:
+  device_name: soyosource-victron-esp32
+  friendly_name: Soyosource Victron ESP32
+  # ESP32: UART2 für RS485 (MAX485), UART1 für VE.Direct — bei Bedarf anpassen
+  pin_rs485_tx: GPIO17
+  pin_rs485_rx: GPIO16
+  pin_ve_tx: GPIO18
+  pin_ve_rx: GPIO19
+  # Leistung am Hausanschluss (W), negativ = Einspeisung — für soyosource_virtual_meter
+  # Standard: IR-Zähler-Gerät (electric_meter_ir.yaml, device_name stromzaehler-ir) → sensor.stromzaehler_ir_wirkleistung
+  homeassistant_power_entity: sensor.stromzaehler_ir_wirkleistung
+  # Mittelungsfenster HA-Leistung = Takt soyosource_virtual_meter (keine Regel alle 3s bei Daten alle 15s)
+  grid_power_average_interval: 15s
+  external_components_soyosource: github://syssi/esphome-soyosource-gtn-virtual-meter@main
+  external_components_victron: github://KinDR007/VictronMPPT-ESPHOME@main
+
+esphome:
+  name: ${device_name}
+  friendly_name: ${friendly_name}
+  comment: Soyosource GTN Limiter über RS485 und Victron MPPT über VE.Direct auf einem ESP32.
+  min_version: 2024.6.0
+  project:
+    name: simon.soyosource-victron-esp32
+    version: "1.0"
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+
+external_components:
+  - source: ${external_components_soyosource}
+    refresh: 0s
+  - source: ${external_components_victron}
+    refresh: 0s
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    # SSID max. 32 Zeichen (ESP8266/ESP32 AP-Limit)
+    ssid: "${device_name} FB"
+    password: !secret ota_password
+
+captive_portal:
+
+logger:
+  level: INFO
+
+api:
+  encryption:
+    key: !secret api_encryption_key
+
+ota:
+  platform: esphome
+  password: !secret ota_password
+
+web_server:
+  port: 80
+
+uart:
+  - id: uart_rs485
+    baud_rate: 4800
+    tx_pin: ${pin_rs485_tx}
+    rx_pin: ${pin_rs485_rx}
+  - id: uart_victron
+    baud_rate: 19200
+    tx_pin: ${pin_ve_tx}
+    rx_pin: ${pin_ve_rx}
+    rx_buffer_size: 256
+
+soyosource_modbus:
+  - id: modbus_soyo
+    uart_id: uart_rs485
+    name: inverter
+
+soyosource_virtual_meter:
+  - id: virtual_meter_soyo
+    soyosource_modbus_id: modbus_soyo
+    power_id: powermeter0
+    power_sensor_inactivity_timeout: 45s
+    power_demand_calculation: NEGATIVE_MEASUREMENTS_REQUIRED
+    min_power_demand: 0
+    max_power_demand: 900
+    zero_output_on_min_power_demand: true
+    power_demand_divider: 1
+    buffer: 10
+    operation_status_id: operation_status_id0
+    update_interval: ${grid_power_average_interval}
+
+soyosource_inverter:
+  - id: inverter_soyo
+    soyosource_modbus_id: modbus_soyo
+
+victron:
+  - id: victron_mppt
+    uart_id: uart_victron
+    throttle: 5s
+
+binary_sensor:
+  - platform: status
+    name: Verbindung
+  - platform: soyosource_inverter
+    soyosource_inverter_id: inverter_soyo
+    fan_running:
+      name: Wechselrichter Lüfter
+
+number:
+  - platform: soyosource_virtual_meter
+    soyosource_virtual_meter_id: virtual_meter_soyo
+    buffer:
+      name: Limiter Puffer
+      initial_value: 10
+      restore_value: true
+    manual_power_demand:
+      name: Manuelle Sollleistung
+      max_value: 900
+    max_power_demand:
+      name: Maximale Sollleistung
+      initial_value: 600
+      max_value: 900
+      restore_value: true
+    power_demand_divider:
+      name: Sollleistung Aufteiler
+      initial_value: 1
+      restore_value: true
+
+sensor:
+  - platform: homeassistant
+    id: powermeter0
+    entity_id: ${homeassistant_power_entity}
+    internal: true
+    filters:
+      - throttle_average: ${grid_power_average_interval}
+
+  - platform: soyosource_virtual_meter
+    soyosource_virtual_meter_id: virtual_meter_soyo
+    power_demand:
+      name: Limiter Sollleistung
+
+  - platform: soyosource_inverter
+    soyosource_inverter_id: inverter_soyo
+    operation_status_id:
+      name: Wechselrichter Betriebsstatus Roh
+      id: operation_status_id0
+    battery_voltage:
+      name: Wechselrichter Batterie Spannung
+    battery_current:
+      name: Wechselrichter Batterie Strom
+    battery_power:
+      name: Wechselrichter Batterie Leistung
+    ac_voltage:
+      name: Wechselrichter AC Spannung
+    ac_frequency:
+      name: Wechselrichter AC Frequenz
+    temperature:
+      name: Wechselrichter Temperatur
+
+  - platform: victron
+    victron_id: victron_mppt
+    panel_voltage:
+      name: MPPT Panel Spannung
+    panel_power:
+      name: MPPT Panel Leistung
+    battery_voltage:
+      name: MPPT Batterie Spannung
+    battery_current:
+      name: MPPT Batterie Strom
+    instantaneous_power:
+      name: MPPT Batterie Leistung Momentan
+    yield_today:
+      name: MPPT Ertrag heute
+    yield_total:
+      name: MPPT Ertrag gesamt
+
+switch:
+  - platform: soyosource_virtual_meter
+    soyosource_virtual_meter_id: virtual_meter_soyo
+    manual_mode:
+      name: Limiter Handbetrieb
+      restore_mode: RESTORE_DEFAULT_ON
+    emergency_power_off:
+      name: Limiter Not Aus
+      restore_mode: RESTORE_DEFAULT_OFF
+
+text_sensor:
+  - platform: version
+    name: ESPHome Version
+  - platform: wifi_info
+    ip_address:
+      name: IP-Adresse
+  - platform: soyosource_inverter
+    soyosource_inverter_id: inverter_soyo
+    operation_status:
+      name: Wechselrichter Betriebsstatus
+  - platform: soyosource_virtual_meter
+    soyosource_virtual_meter_id: virtual_meter_soyo
+    operation_mode:
+      name: Limiter Betriebsart
+  - platform: victron
+    victron_id: victron_mppt
+    charging_mode:
+      name: MPPT Lademodus
+    error:
+      name: MPPT Fehler
+    tracking_mode:
+      name: MPPT MPP Tracking
