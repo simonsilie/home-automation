@@ -1,0 +1,132 @@
+# ESPHome: IR-Lesekopf (z. B. Hichi) → UART → SML-Stromzähler → Home Assistant (ESP8266)
+#
+# ESP8266 ist oft günstiger; im Dauerbetrieb mit WLAN ist der Mehrverbrauch ggü. ESP32 gering.
+# Tiefschlaf lohnt sich hier kaum – der Zähler sendet SML alle paar Sekunden, Empfang muss aktiv bleiben.
+#
+# Voraussetzung: Der Zähler sendet SML über die optische Schnittstelle (typisch bei
+# modernen eHZ). Bei reinem IEC 62056-21 / Mode-D ist diese YAML nicht passend.
+#
+# Verkabelung (im Zweifel Datenblatt Hichi + Zählerhandbuch):
+#   - GND ↔ GND
+#   - VCC ↔ 3,3 V (nur wenn der Kopf für 3,3 V ausgelegt ist – sonst 5 V + Pegelanpassung)
+#   - Datenleitung vom Kopf → RX des ESP (TX am Kopf nur nötig, wenn der Zähler Abfragen braucht)
+#
+# OBIS-Codes / Skalierung: Bei fehlenden Werten oder falschen Zahlen Logger auf DEBUG stellen
+# und ESPHome-Log auf OBIS-Zeilen prüfen; „multiply“ ggf. auf 0.0001 o. Ä. anpassen (Zählerabhängig).
+#
+# Nach dem Flashen in HA: Energy-Dashboard mit Sensor „Bezug Gesamtenergie“ (kWh) verknüpfen.
+
+substitutions:
+  device_name: stromzaehler-ir
+  friendly_name: Stromzähler IR
+  # Wemos D1 mini: GPIO13 = D7 (RX ← IR-Kopf), GPIO14 = D5 (TX → Kopf, nur wenn nötig; sonst offen lassen)
+  pin_rx: GPIO13
+  pin_tx: GPIO14
+
+esphome:
+  name: ${device_name}
+  friendly_name: ${friendly_name}
+  min_version: 2024.6.0
+  project:
+    name: simon.stromzaehler-ir
+    version: "1.0"
+
+esp8266:
+  board: d1_mini
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: "${friendly_name} Fallback"
+    password: !secret ota_password
+
+captive_portal:
+
+# Standard: Log über USB (UART0). Nutzt du stattdessen GPIO3 als RX für den Zähler: baud_rate: 0 setzen.
+logger:
+  level: INFO
+
+api:
+  encryption:
+    key: !secret api_encryption_key
+
+ota:
+  platform: esphome
+  password: !secret ota_password
+
+web_server:
+  port: 80
+
+uart:
+  id: uart_zaehler
+  rx_pin: ${pin_rx}
+  tx_pin: ${pin_tx}
+  baud_rate: 9600
+  data_bits: 8
+  parity: EVEN
+  stop_bits: 1
+
+# SML ist passiv (nur Empfang). Bei Prüfsummenfehlern in den Logs: UART auf 9600/8N1 probieren.
+sml:
+  id: sml_zaehler
+  uart_id: uart_zaehler
+
+sensor:
+  - platform: sml
+    name: Bezug Gesamtenergie
+    sml_id: sml_zaehler
+    obis_code: "1-0:1.8.0"
+    unit_of_measurement: kWh
+    accuracy_decimals: 3
+    device_class: energy
+    state_class: total_increasing
+    filters:
+      - multiply: 0.001
+  - platform: sml
+    name: Einspeisung Gesamtenergie
+    sml_id: sml_zaehler
+    obis_code: "1-0:2.8.0"
+    unit_of_measurement: kWh
+    accuracy_decimals: 3
+    device_class: energy
+    state_class: total_increasing
+    filters:
+      - multiply: 0.001
+  - platform: sml
+    name: Wirkleistung
+    sml_id: sml_zaehler
+    obis_code: "1-0:16.7.0"
+    unit_of_measurement: W
+    accuracy_decimals: 0
+    device_class: power
+    state_class: measurement
+  - platform: sml
+    name: Bezug Tarif 1
+    sml_id: sml_zaehler
+    obis_code: "1-0:1.8.1"
+    unit_of_measurement: kWh
+    accuracy_decimals: 3
+    disabled_by_default: true
+    filters:
+      - multiply: 0.001
+  - platform: sml
+    name: Bezug Tarif 2
+    sml_id: sml_zaehler
+    obis_code: "1-0:1.8.2"
+    unit_of_measurement: kWh
+    accuracy_decimals: 3
+    disabled_by_default: true
+    filters:
+      - multiply: 0.001
+
+binary_sensor:
+  - platform: status
+    name: Verbindung
+
+text_sensor:
+  - platform: version
+    name: ESPHome Version
+  - platform: wifi_info
+    ip_address:
+      name: IP-Adresse
