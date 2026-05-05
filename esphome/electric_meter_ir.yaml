@@ -19,9 +19,10 @@
 substitutions:
   device_name: stromzaehler-ir
   friendly_name: Stromzähler IR
-  # Wemos D1 mini: GPIO13 = D7 (RX ← IR-Kopf), GPIO14 = D5 (TX → Kopf, nur wenn nötig; sonst offen lassen)
-  pin_rx: GPIO13
-  pin_tx: GPIO14
+  # Echte UART0-Konfiguration auf ESP8266: RX0=GPIO3, TX0=GPIO1.
+  # Achtung: Logger bleibt auf baud_rate: 0, damit UART0 komplett frei ist.
+  pin_rx: GPIO3
+  pin_tx: GPIO1
 
 esphome:
   name: ${device_name}
@@ -47,6 +48,7 @@ captive_portal:
 # Standard: Log über USB (UART0). Nutzt du stattdessen GPIO3 als RX für den Zähler: baud_rate: 0 setzen.
 logger:
   level: INFO
+  baud_rate: 0
 
 api:
   encryption:
