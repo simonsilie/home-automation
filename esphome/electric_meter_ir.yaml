@@ -23,6 +23,11 @@ substitutions:
   # Achtung: Logger bleibt auf baud_rate: 0, damit UART0 komplett frei ist.
   pin_rx: GPIO3
   pin_tx: GPIO1
+  uart_baud_rate: "9600"
+  # Hichi/SML-Lesekoepfe liefern in der Regel 8N1. Falls ein Zaehler 7E1 nutzt
+  # (eher bei IEC 62056-21 / Mode-D), muss hier auf EVEN umgestellt werden.
+  uart_parity: NONE
+  uart_stop_bits: "1"
 
 esphome:
   name: ${device_name}
@@ -65,10 +70,10 @@ uart:
   id: uart_zaehler
   rx_pin: ${pin_rx}
   tx_pin: ${pin_tx}
-  baud_rate: 9600
+  baud_rate: ${uart_baud_rate}
   data_bits: 8
-  parity: EVEN
-  stop_bits: 1
+  parity: ${uart_parity}
+  stop_bits: ${uart_stop_bits}
 
 # SML ist passiv (nur Empfang). Bei Prüfsummenfehlern in den Logs: UART auf 9600/8N1 probieren.
 sml:
@@ -81,21 +86,23 @@ sensor:
     sml_id: sml_zaehler
     obis_code: "1-0:1.8.0"
     unit_of_measurement: kWh
-    accuracy_decimals: 3
+    accuracy_decimals: 4
     device_class: energy
     state_class: total_increasing
     filters:
-      - multiply: 0.001
+      # SML liefert Wh mit Skaler 10^-1 (Bytes 52 FF), Komponente skaliert nicht selbst.
+      # 14364 (Rohwert) * 0.0001 = 1.4364 kWh.
+      - multiply: 0.0001
   - platform: sml
     name: Einspeisung Gesamtenergie
     sml_id: sml_zaehler
     obis_code: "1-0:2.8.0"
     unit_of_measurement: kWh
-    accuracy_decimals: 3
+    accuracy_decimals: 4
     device_class: energy
     state_class: total_increasing
     filters:
-      - multiply: 0.001
+      - multiply: 0.0001
   - platform: sml
     name: Wirkleistung
     sml_id: sml_zaehler
@@ -105,23 +112,153 @@ sensor:
     device_class: power
     state_class: measurement
   - platform: sml
-    name: Bezug Tarif 1
+    name: Wirkleistung L1
     sml_id: sml_zaehler
-    obis_code: "1-0:1.8.1"
-    unit_of_measurement: kWh
-    accuracy_decimals: 3
-    disabled_by_default: true
-    filters:
-      - multiply: 0.001
+    obis_code: "1-0:36.7.0"
+    unit_of_measurement: W
+    accuracy_decimals: 0
+    device_class: power
+    state_class: measurement
   - platform: sml
-    name: Bezug Tarif 2
+    name: Wirkleistung L2
     sml_id: sml_zaehler
-    obis_code: "1-0:1.8.2"
-    unit_of_measurement: kWh
-    accuracy_decimals: 3
+    obis_code: "1-0:56.7.0"
+    unit_of_measurement: W
+    accuracy_decimals: 0
+    device_class: power
+    state_class: measurement
+  - platform: sml
+    name: Wirkleistung L3
+    sml_id: sml_zaehler
+    obis_code: "1-0:76.7.0"
+    unit_of_measurement: W
+    accuracy_decimals: 0
+    device_class: power
+    state_class: measurement
+  - platform: sml
+    name: Spannung L1
+    sml_id: sml_zaehler
+    obis_code: "1-0:32.7.0"
+    unit_of_measurement: V
+    accuracy_decimals: 1
+    device_class: voltage
+    state_class: measurement
+    filters:
+      # Skaler -1 → V
+      - multiply: 0.1
+  - platform: sml
+    name: Spannung L2
+    sml_id: sml_zaehler
+    obis_code: "1-0:52.7.0"
+    unit_of_measurement: V
+    accuracy_decimals: 1
+    device_class: voltage
+    state_class: measurement
+    filters:
+      - multiply: 0.1
+  - platform: sml
+    name: Spannung L3
+    sml_id: sml_zaehler
+    obis_code: "1-0:72.7.0"
+    unit_of_measurement: V
+    accuracy_decimals: 1
+    device_class: voltage
+    state_class: measurement
+    filters:
+      - multiply: 0.1
+  - platform: sml
+    name: Strom L1
+    sml_id: sml_zaehler
+    obis_code: "1-0:31.7.0"
+    unit_of_measurement: A
+    accuracy_decimals: 2
+    device_class: current
+    state_class: measurement
+    filters:
+      # Skaler -2 → A
+      - multiply: 0.01
+  - platform: sml
+    name: Strom L2
+    sml_id: sml_zaehler
+    obis_code: "1-0:51.7.0"
+    unit_of_measurement: A
+    accuracy_decimals: 2
+    device_class: current
+    state_class: measurement
+    filters:
+      - multiply: 0.01
+  - platform: sml
+    name: Strom L3
+    sml_id: sml_zaehler
+    obis_code: "1-0:71.7.0"
+    unit_of_measurement: A
+    accuracy_decimals: 2
+    device_class: current
+    state_class: measurement
+    filters:
+      - multiply: 0.01
+  - platform: sml
+    name: Netzfrequenz
+    sml_id: sml_zaehler
+    obis_code: "1-0:14.7.0"
+    unit_of_measurement: Hz
+    accuracy_decimals: 1
+    device_class: frequency
+    state_class: measurement
+    filters:
+      # Skaler -1 → Hz
+      - multiply: 0.1
+  - platform: sml
+    name: Phasenwinkel U_L2 zu U_L1
+    sml_id: sml_zaehler
+    obis_code: "1-0:81.7.1"
+    unit_of_measurement: "°"
+    accuracy_decimals: 1
+    state_class: measurement
     disabled_by_default: true
     filters:
-      - multiply: 0.001
+      # Skaler -1 → Grad
+      - multiply: 0.1
+  - platform: sml
+    name: Phasenwinkel U_L3 zu U_L1
+    sml_id: sml_zaehler
+    obis_code: "1-0:81.7.2"
+    unit_of_measurement: "°"
+    accuracy_decimals: 1
+    state_class: measurement
+    disabled_by_default: true
+    filters:
+      - multiply: 0.1
+  - platform: sml
+    name: Phasenwinkel I_L1 zu U_L1
+    sml_id: sml_zaehler
+    obis_code: "1-0:81.7.4"
+    unit_of_measurement: "°"
+    accuracy_decimals: 1
+    state_class: measurement
+    disabled_by_default: true
+    filters:
+      - multiply: 0.1
+  - platform: sml
+    name: Phasenwinkel I_L2 zu U_L2
+    sml_id: sml_zaehler
+    obis_code: "1-0:81.7.15"
+    unit_of_measurement: "°"
+    accuracy_decimals: 1
+    state_class: measurement
+    disabled_by_default: true
+    filters:
+      - multiply: 0.1
+  - platform: sml
+    name: Phasenwinkel I_L3 zu U_L3
+    sml_id: sml_zaehler
+    obis_code: "1-0:81.7.26"
+    unit_of_measurement: "°"
+    accuracy_decimals: 1
+    state_class: measurement
+    disabled_by_default: true
+    filters:
+      - multiply: 0.1
 
 binary_sensor:
   - platform: status
@@ -133,3 +270,24 @@ text_sensor:
   - platform: wifi_info
     ip_address:
       name: IP-Adresse
+  - platform: sml
+    name: Zaehlernummer
+    sml_id: sml_zaehler
+    obis_code: "1-0:96.1.0"
+    format: hex
+  - platform: sml
+    name: Hersteller-ID
+    sml_id: sml_zaehler
+    obis_code: "1-0:96.50.1"
+    format: text
+  - platform: sml
+    name: Firmware-Version
+    sml_id: sml_zaehler
+    obis_code: "1-0:0.2.0"
+    format: text
+  - platform: sml
+    name: Statuswort
+    sml_id: sml_zaehler
+    obis_code: "1-0:96.90.2"
+    format: hex
+    disabled_by_default: true
