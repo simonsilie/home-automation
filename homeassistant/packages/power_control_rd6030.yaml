@@ -1,4 +1,4 @@
-# Überschussladung RD6030W mit Priorität Soyosource (Home Assistant Paket)
+# Überschussladung RD6030W – gegenseitiger Ausschluss mit Soyosource GTN (Home Assistant Paket)
 #
 # Einbinden (configuration.yaml):
 #   homeassistant:
@@ -6,36 +6,38 @@
 # Diese Datei nach <config>/packages/power_control_rd6030.yaml kopieren.
 #
 # Secrets in secrets.yaml:
-#   rd6030w_host: <IP des Wi‑Fi‑Dongles / riden-dongle>
+#   rd6030w_host: <IP des Wi-Fi-Dongles / riden-dongle>
 #
 # Modbus-Register: RD60xx-üblich (Spannung/Strom Soll 8/9, Ist 10/11, Ausgang 18).
 # Andere Firmware / Dongle: Adressen & Skalierung in der Modbus-Sektion anpassen.
 #
-# --- Konzept: beide Geräte am Netz (gemeinsamer PCC) ---
-# Soyosource (WR) und RD6030W (AC-Eingang Netzteil) können dieselbe Hausinstallation und damit
-# dieselbe Zähler-Wirkleistung teilen:
-#   - Einspeisung WR → Zähler wird eher „negativ“ / weniger Bezug.
-#   - Laden RD6030W → zusätzlicher Bezug am gleichen Messpunkt.
-# Es gibt keine getrennte „versteckte“ DC-Hausinsel für das Netzteil: Sobald RD6030 lädt,
-# wirkt das wie zusätzlicher Hausverbrauch auf den gleichen Sensor wie der Soyosource-Limiter.
-# Dadurch kann sich bei zwei geschlossenen Kreisen Pendeln einstellen (beide nutzen denselben,
-# oft verzögerten Istwert). Mit Totband + Netzkopplungs-Marge + Rampe wird das entschärft.
+# --- Konzept: gegenseitiger Ausschluss ---
+# Soyosource GTN (DC->AC, Batterie->Netz) und RD6030W (AC->DC, Netz->Batterie via MPPT) teilen
+# dieselbe Batterie. Gleichzeitiger Betrieb wäre ein sinnloser Kreislauf:
+#   Netz -> RD6030W -> Batterie -> Soyosource -> Netz
+# Daher gilt:
+#   1. PV-Überschuss erkannt (Netz exportiert UND Soyosource-Sollleistung < 20 W):
+#      -> Soyosource auf max = 0 sperren, RD6030W lädt den Überschuss über den Victron MPPT.
+#   2. Kein Überschuss (Import oder Soyosource noch aktiv):
+#      -> RD6030W runterrampen und abschalten, Soyosource Normalleistung wiederherstellen.
 #
-# RD6030 lädt hier nur bei verbleibendem Export (> Totband + Marge) und wenn der WR bereits
-# nahe seinem Limit ist — Bezug vom öffentlichen Netz zum Laden ohne Überschuss ist nicht Ziel.
+# Warum "Soyosource < 20 W" als Startsignal?
+# Bei PV-Überschuss reduziert der Soyosource-virtuelle-Zähler die Sollleistung selbstständig
+# auf ~0 (kein Bedarf zum Einspeisen). Erst dann ist sichergestellt, dass der Netz-Export
+# wirklich aus dem Balkonkraftwerk stammt und nicht vom Wechselrichter selbst.
 #
 # Zähler: sensor.stromzaehler_ir_wirkleistung (positiv = Bezug, negativ = Einspeisung)
 # Soyosource: sensor.soyosource_victron_esp32_limiter_sollleistung,
 #             number.soyosource_victron_esp32_maximale_sollleistung
 #
 # Sicherheit / Elektrik:
-# - Ladespannung/-strom am RD6030W und per input_number begrenzen; BMS- Abschaltung beachten.
-# - Wenn dieselbe Batterie parallel vom Victron-MPPT geladen wird: Ladequellen koordinieren
-#   (Summenstrom, Relais, separate Strings) — nicht nur diese Automation.
+# - Ladespannung/-strom am RD6030W und per input_number begrenzen; MPPT/BMS-Abschaltung beachten.
+# - RD6030W-DC-Ausgang darf nicht parallel zu echten PV-Modulen am selben MPPT-Eingang
+#   betrieben werden (Rückspeisung ins Netzteil vermeiden -- Sperrdiode oder Umschaltung).
 
 input_boolean:
   rd6030_surplus_charge_master:
-    name: RD6030 Überschussladen (gemeinsamer Netzanschluss)
+    name: RD6030 Überschussladen (gegenseitiger Ausschluss Soyosource)
     icon: mdi:battery-charging-high
 
 input_number:
@@ -47,14 +49,6 @@ input_number:
     unit_of_measurement: W
     mode: box
     initial: 100
-  rd6030_grid_coupling_margin_w:
-    name: RD6030 Netzkopplungs-Marge
-    min: 0
-    max: 2000
-    step: 25
-    unit_of_measurement: W
-    mode: box
-    initial: 75
   rd6030_max_charge_current_a:
     name: RD6030 max. Ladestrom
     min: 0
@@ -71,14 +65,14 @@ input_number:
     unit_of_measurement: A
     mode: box
     initial: 0.5
-  rd6030_limiter_cap_tolerance_w:
-    name: RD6030 Soyosource Cap-Toleranz
-    min: 5
-    max: 200
-    step: 5
+  rd6030_soyosource_normal_max_w:
+    name: RD6030 Soyosource Normalleistung (Wiederherstellung)
+    min: 0
+    max: 2000
+    step: 10
     unit_of_measurement: W
     mode: box
-    initial: 25
+    initial: 800
   rd6030_max_charge_voltage_v:
     name: RD6030 max. Ladespannung (Sicherheit)
     min: 12
@@ -175,31 +169,22 @@ template:
           {{ [0.0, 0.0 - p] | max | round(0) }}
         availability: >
           {{ states('sensor.stromzaehler_ir_wirkleistung') not in ['unknown', 'unavailable', 'none', ''] }}
-  - binary_sensor:
-      - name: "Soyosource limiter at cap"
-        unique_id: power_steuerung_soyosource_at_cap
-        state: >
-          {% set demand = states('sensor.soyosource_victron_esp32_limiter_sollleistung') | float(0) %}
-          {% set cap = states('number.soyosource_victron_esp32_maximale_sollleistung') | float(0) %}
-          {% set tol = states('input_number.rd6030_limiter_cap_tolerance_w') | float(25) %}
-          {{ demand >= (cap - tol) if cap > 0 else false }}
-        availability: >
-          {{ states('sensor.soyosource_victron_esp32_limiter_sollleistung') not in ['unknown', 'unavailable']
-             and states('number.soyosource_victron_esp32_maximale_sollleistung') not in ['unknown', 'unavailable'] }}
 
 automation:
   - id: power_steuerung_rd6030_follow_surplus
-    alias: "RD6030 Überschussladen (Soyosource zuerst)"
+    alias: "RD6030 Überschussladen (gegenseitiger Ausschluss Soyosource)"
     description: >
-      RD6030 und Soyosource nutzen denselben Netzzähler-Istwert: Ladestrom nur wenn Export über
-      Totband plus Netzkopplungs-Marge liegt und der WR nahe Maximale Sollleistung ist.
-      Sonst Rampe runter. Sicherheit: Abbruch wenn Ausgangsspannung über „RD6030 max. Ladespannung“.
+      Lädt nur bei echtem PV-Überschuss: Netz exportiert UND Soyosource-Sollleistung < 20 W.
+      Während RD6030W aktiv ist, wird Soyosource auf max=0 gesperrt (gegenseitiger Ausschluss).
+      Bei fehlendem Überschuss: RD6030W runterrampen, Soyosource Normalleistung wiederherstellen.
+      Sicherheit: sofortiger Stopp wenn Ausgangsspannung über max. Ladespannung.
     mode: restart
     trigger:
       - trigger: time_pattern
         seconds: "/30"
     action:
       - choose:
+          # Master aus: alles abschalten, Soyosource freigeben
           - conditions:
               - condition: state
                 entity_id: input_boolean.rd6030_surplus_charge_master
@@ -213,12 +198,15 @@ automation:
               - service: switch.turn_off
                 target:
                   entity_id: switch.rd6030_output_enable
+              - service: number.set_value
+                target:
+                  entity_id: number.soyosource_victron_esp32_maximale_sollleistung
+                data:
+                  value: "{{ states('input_number.rd6030_soyosource_normal_max_w') | float(800) }}"
         default:
           - variables:
               export_w: "{{ states('sensor.grid_export_surplus') | float(0) }}"
               deadband: "{{ states('input_number.rd6030_export_deadband_w') | float(100) }}"
-              margin: "{{ states('input_number.rd6030_grid_coupling_margin_w') | float(75) }}"
-              charge_thr: "{{ (deadband | float(0)) + (margin | float(0)) }}"
               max_a: "{{ states('input_number.rd6030_max_charge_current_a') | float(15) }}"
               step_a: "{{ states('input_number.rd6030_current_step_a') | float(0.5) }}"
               max_v: "{{ states('input_number.rd6030_max_charge_voltage_v') | float(58.4) }}"
@@ -226,10 +214,15 @@ automation:
               v_meas: "{{ states('sensor.rd6030_output_voltage') | float(12) }}"
               v_safe: "{{ [v_meas | float(12), v_min | float(12)] | max }}"
               cur: "{{ states('number.rd6030_charge_current') | float(0) }}"
+              soy_demand: "{{ states('sensor.soyosource_victron_esp32_limiter_sollleistung') | float(0) }}"
+              normal_max: "{{ states('input_number.rd6030_soyosource_normal_max_w') | float(800) }}"
+              # Soyosource gilt als "aus" wenn virtuelle Sollleistung < 20 W
+              soy_off: "{{ soy_demand < 20 }}"
           - choose:
+              # Sicherheitsabschaltung: Batterie-/MPPT-Spannung zu hoch
               - conditions:
                   - condition: template
-                    value_template: "{{ (v_meas | float(0)) > (max_v | float(65)) }}"
+                    value_template: "{{ v_meas > max_v }}"
                 sequence:
                   - service: number.set_value
                     target:
@@ -239,22 +232,32 @@ automation:
                   - service: switch.turn_off
                     target:
                       entity_id: switch.rd6030_output_enable
+                  - service: number.set_value
+                    target:
+                      entity_id: number.soyosource_victron_esp32_maximale_sollleistung
+                    data:
+                      value: "{{ normal_max }}"
+              # PV-Überschuss: Grid exportiert UND Soyosource ist nahe 0
+              # -> Soyosource sperren, RD6030W auf Überschuss regeln
               - conditions:
                   - condition: template
-                    value_template: >
-                      {{ (export_w | float(0)) > (charge_thr | float(0))
-                         and is_state('binary_sensor.soyosource_limiter_at_cap', 'on') }}
+                    value_template: "{{ export_w > deadband and soy_off }}"
                 sequence:
+                  - service: number.set_value
+                    target:
+                      entity_id: number.soyosource_victron_esp32_maximale_sollleistung
+                    data:
+                      value: 0
                   - variables:
-                      target_a: "{{ (((export_w | float(0)) - (charge_thr | float(0))) / (v_safe | float(12))) | round(2) }}"
-                      target_clamped: "{{ [[target_a | float(0), 0] | max, max_a | float(30)] | min }}"
+                      available_w: "{{ export_w - deadband }}"
+                      target_a: "{{ (available_w / v_safe) | round(2) }}"
+                      target_clamped: "{{ [[target_a | float(0), 0] | max, max_a] | min }}"
                       next_i: >
                         {% set tc = target_clamped | float(0) %}
                         {% set c = cur | float(0) %}
                         {% set s = step_a | float(0.5) %}
-                        {% set ma = max_a | float(30) %}
                         {% if tc > c %}
-                          {{ [[c + s, tc] | min, ma] | min | round(2) }}
+                          {{ [[c + s, tc] | min, max_a] | min | round(2) }}
                         {% elif tc < c %}
                           {{ [c - s, tc] | max | round(2) }}
                         {% else %}
@@ -267,7 +270,7 @@ automation:
                       value: "{{ next_i }}"
                   - if:
                       - condition: template
-                        value_template: "{{ (next_i | float(0)) > 0 }}"
+                        value_template: "{{ next_i > 0 }}"
                     then:
                       - service: switch.turn_on
                         target:
@@ -276,6 +279,8 @@ automation:
                       - service: switch.turn_off
                         target:
                           entity_id: switch.rd6030_output_enable
+            # Kein PV-Überschuss oder Soyosource noch aktiv:
+            # RD6030W runterrampen, bei 0 Soyosource Normalleistung wiederherstellen
             default:
               - variables:
                   next_down: "{{ [(cur | float(0)) - (step_a | float(0.5)), 0] | max | round(2) }}"
@@ -286,11 +291,16 @@ automation:
                   value: "{{ next_down }}"
               - if:
                   - condition: template
-                    value_template: "{{ (next_down | float(0)) <= 0 }}"
+                    value_template: "{{ next_down <= 0 }}"
                 then:
                   - service: switch.turn_off
                     target:
                       entity_id: switch.rd6030_output_enable
+                  - service: number.set_value
+                    target:
+                      entity_id: number.soyosource_victron_esp32_maximale_sollleistung
+                    data:
+                      value: "{{ normal_max }}"
 
   - id: power_steuerung_rd6030_master_off_cleanup
     alias: "RD6030 Aus bei Master AUS"
@@ -308,3 +318,8 @@ automation:
       - service: switch.turn_off
         target:
           entity_id: switch.rd6030_output_enable
+      - service: number.set_value
+        target:
+          entity_id: number.soyosource_victron_esp32_maximale_sollleistung
+        data:
+          value: "{{ states('input_number.rd6030_soyosource_normal_max_w') | float(800) }}"
