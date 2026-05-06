@@ -1,15 +1,12 @@
 # ESPHome: IR-Lesekopf (z. B. Hichi) → UART → SML-Stromzähler → Home Assistant (ESP8266)
 #
-# ESP8266 ist oft günstiger; im Dauerbetrieb mit WLAN ist der Mehrverbrauch ggü. ESP32 gering.
-# Tiefschlaf lohnt sich hier kaum – der Zähler sendet SML alle paar Sekunden, Empfang muss aktiv bleiben.
-#
 # Voraussetzung: Der Zähler sendet SML über die optische Schnittstelle (typisch bei
 # modernen eHZ). Bei reinem IEC 62056-21 / Mode-D ist diese YAML nicht passend.
 #
-# Verkabelung (im Zweifel Datenblatt Hichi + Zählerhandbuch):
+# Verkabelung:
 #   - GND ↔ GND
 #   - VCC ↔ 3,3 V (nur wenn der Kopf für 3,3 V ausgelegt ist – sonst 5 V + Pegelanpassung)
-#   - Datenleitung vom Kopf → RX des ESP (TX am Kopf nur nötig, wenn der Zähler Abfragen braucht)
+#   - Datenleitung vom Kopf RX → RX des ESP (TX am Kopf wird nicht benötigt)
 #
 # OBIS-Codes / Skalierung: Bei fehlenden Werten oder falschen Zahlen Logger auf DEBUG stellen
 # und ESPHome-Log auf OBIS-Zeilen prüfen; „multiply“ ggf. auf 0.0001 o. Ä. anpassen (Zählerabhängig).
