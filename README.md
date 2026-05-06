@@ -80,6 +80,18 @@ esphome run soyosource-victron-esp32.yaml
 | --- | --- |
 | [homeassistant/packages/power_control_rd6030.yaml](homeassistant/packages/power_control_rd6030.yaml) | Überschussladung eines Riden RD6030W über Modbus/TCP, koordiniert mit dem Soyosource-Limiter |
 
+### WLAN-Dongle des RD6030W
+
+Der Modbus/TCP-Zugriff setzt voraus, dass der interne WLAN-Dongle mit einer alternativen
+Firmware betrieben wird. Die originale Riden-Firmware unterstützt kein Modbus TCP.
+
+Empfohlen: **[morgendagen/riden-dongle](https://github.com/morgendagen/riden-dongle)** –
+PlatformIO-Firmware (ESP8266/ESP-12F), die Modbus TCP, SCPI und ein Web-Interface bereitstellt.
+
+> **Hinweis Hardware:** Neuere Dongles verwenden einen ESP8684-Chip mit verschlüsseltem
+> Bootloader (nicht flashbar). Diese müssen erst auf einen ESP-12F umgerüstet werden, bevor
+> riden-dongle aufgespielt werden kann. Details siehe README des Projekts.
+
 ### Einbinden
 
 In `configuration.yaml`:
