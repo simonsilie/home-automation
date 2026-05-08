@@ -33,11 +33,10 @@
 substitutions:
   device_name: soyosource-victron-esp32
   friendly_name: Soyosource Victron ESP32
-  # ESP32-S3: zwei UARTs für RS485 (MAX485) und VE.Direct — bei Bedarf anpassen
+  # ESP32-S3: zwei UARTs für RS485 (MAX485) und VE.Direct — USB/JTAG-Pins 19/20 und ungueltige GPIOs vermeiden
   pin_rs485_tx: GPIO17
   pin_rs485_rx: GPIO16
-  pin_ve_tx: GPIO18
-  pin_ve_rx: GPIO19
+  pin_ve_rx: GPIO4
   # Leistung am Hausanschluss (W), negativ = Einspeisung — für soyosource_virtual_meter
   # Standard: IR-Zähler-Gerät (electric_meter_ir.yaml, device_name stromzaehler-ir) → sensor.stromzaehler_ir_wirkleistung
   homeassistant_power_entity: sensor.stromzaehler_ir_wirkleistung
@@ -98,7 +97,7 @@ uart:
     rx_pin: ${pin_rs485_rx}
   - id: uart_victron
     baud_rate: 19200
-    tx_pin: ${pin_ve_tx}
+    # VE.Direct wird hier nur passiv mitgelesen: nur Victron-TX -> ESP-RX.
     rx_pin: ${pin_ve_rx}
     rx_buffer_size: 256
 
