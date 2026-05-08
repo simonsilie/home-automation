@@ -42,6 +42,8 @@ substitutions:
   homeassistant_power_entity: sensor.stromzaehler_ir_wirkleistung
   # Mittelungsfenster HA-Leistung = Takt soyosource_virtual_meter (keine Regel alle 3s bei Daten alle 15s)
   grid_power_average_interval: 15s
+  # Maximale Einspeiseleistung des Soyosource GTN in Watt
+  max_inverter_power: "600"
   external_components_soyosource: github://syssi/esphome-soyosource-gtn-virtual-meter@main
   external_components_victron: github://KinDR007/VictronMPPT-ESPHOME@main
 
@@ -113,16 +115,16 @@ soyosource_virtual_meter:
     power_sensor_inactivity_timeout: 45s
     power_demand_calculation: NEGATIVE_MEASUREMENTS_REQUIRED
     min_power_demand: 0
-    max_power_demand: 900
+    max_power_demand: ${max_inverter_power}
     zero_output_on_min_power_demand: true
     power_demand_divider: 1
     buffer: 10
-    operation_status_id: operation_status_id0
-    update_interval: ${grid_power_average_interval}
+    # Soyosource erwartet regelmaessige Frames; bei 15s reicht ein verlorenes Paket fuer Ausfall.
+    # 3s ist sicher und belastet den Bus nicht nennenswert (8 Byte @ 4800 baud = ~17ms).
+    update_interval: 3s
 
-soyosource_inverter:
-  - id: inverter_soyo
-    soyosource_modbus_id: modbus_soyo
+# Purple mainboard (STC8-2022-218) antwortet nicht auf RS485-Statusabfragen (0x24...).
+# soyosource_inverter daher komplett entfernt — vermeidet unnötiges Polling auf dem Bus.
 
 victron:
   - id: victron_mppt
@@ -132,10 +134,6 @@ victron:
 binary_sensor:
   - platform: status
     name: Verbindung
-  - platform: soyosource_inverter
-    soyosource_inverter_id: inverter_soyo
-    fan_running:
-      name: Wechselrichter Lüfter
 
 number:
   - platform: soyosource_virtual_meter
@@ -146,12 +144,13 @@ number:
       restore_value: true
     manual_power_demand:
       name: Manuelle Sollleistung
-      max_value: 900
+      max_value: ${max_inverter_power}
     max_power_demand:
       name: Maximale Sollleistung
-      initial_value: 600
-      max_value: 900
+      initial_value: ${max_inverter_power}
+      max_value: ${max_inverter_power}
       restore_value: true
+    # Teilt Sollleistung auf N Inverter auf (1 = ein Inverter, keine Aufteilung)
     power_demand_divider:
       name: Sollleistung Aufteiler
       initial_value: 1
@@ -169,24 +168,6 @@ sensor:
     soyosource_virtual_meter_id: virtual_meter_soyo
     power_demand:
       name: Limiter Sollleistung
-
-  - platform: soyosource_inverter
-    soyosource_inverter_id: inverter_soyo
-    operation_status_id:
-      name: Wechselrichter Betriebsstatus Roh
-      id: operation_status_id0
-    battery_voltage:
-      name: Wechselrichter Batterie Spannung
-    battery_current:
-      name: Wechselrichter Batterie Strom
-    battery_power:
-      name: Wechselrichter Batterie Leistung
-    ac_voltage:
-      name: Wechselrichter AC Spannung
-    ac_frequency:
-      name: Wechselrichter AC Frequenz
-    temperature:
-      name: Wechselrichter Temperatur
 
   - platform: victron
     victron_id: victron_mppt
@@ -221,10 +202,6 @@ text_sensor:
   - platform: wifi_info
     ip_address:
       name: IP-Adresse
-  - platform: soyosource_inverter
-    soyosource_inverter_id: inverter_soyo
-    operation_status:
-      name: Wechselrichter Betriebsstatus
   - platform: soyosource_virtual_meter
     soyosource_virtual_meter_id: virtual_meter_soyo
     operation_mode:
