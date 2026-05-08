@@ -33,7 +33,7 @@
 substitutions:
   device_name: soyosource-victron-esp32
   friendly_name: Soyosource Victron ESP32
-  # ESP32: UART2 für RS485 (MAX485), UART1 für VE.Direct — bei Bedarf anpassen
+  # ESP32-S3: zwei UARTs für RS485 (MAX485) und VE.Direct — bei Bedarf anpassen
   pin_rs485_tx: GPIO17
   pin_rs485_rx: GPIO16
   pin_ve_tx: GPIO18
@@ -56,7 +56,8 @@ esphome:
     version: "1.0"
 
 esp32:
-  board: esp32dev
+  variant: esp32s3
+  flash_size: 16MB
   framework:
     type: esp-idf
 
