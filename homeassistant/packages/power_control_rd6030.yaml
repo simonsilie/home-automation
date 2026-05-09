@@ -1,15 +1,10 @@
 # Überschussladung RD6030W – gegenseitiger Ausschluss mit Soyosource GTN (Home Assistant Paket)
 #
-# Einbinden (configuration.yaml):
-#   homeassistant:
-#     packages: !include_dir_named packages/
-# Diese Datei nach <config>/packages/power_control_rd6030.yaml kopieren.
+# Einbinden:
+# - rd6030_device.yaml fuer die RD6030 Modbus-Entities laden
+# - power_control_rd6030.yaml fuer die gekoppelte RD6030/Soyosource-Automation laden
 #
-# Secrets in secrets.yaml:
-#   rd6030w_host: <IP des Wi-Fi-Dongles / riden-dongle>
-#
-# Modbus-Register: RD60xx-üblich (Spannung/Strom Soll 8/9, Ist 10/11, Ausgang 18).
-# Andere Firmware / Dongle: Adressen & Skalierung in der Modbus-Sektion anpassen.
+# Modbus-Register und rd6030w_host liegen in rd6030_device.yaml.
 #
 # --- Konzept: gegenseitiger Ausschluss ---
 # Soyosource GTN (DC->AC, Batterie->Netz) und RD6030W (AC->DC, Netz->Batterie via MPPT) teilen
@@ -84,73 +79,6 @@ input_number:
     unit_of_measurement: V
     mode: box
     initial: 12
-
-modbus:
-  - name: rd6030
-    type: tcp
-    host: !secret rd6030w_host
-    port: 502
-    message_wait_milliseconds: 30
-    timeout: 5
-    numbers:
-      - name: "RD6030 charge voltage"
-        unique_id: rd6030_charge_voltage_set
-        slave: 1
-        address: 8
-        input_type: holding
-        data_type: uint16
-        min: 0
-        max: 60
-        step: 0.01
-        scale: 0.01
-        offset: 0
-        precision: 2
-        unit_of_measurement: V
-        device_class: voltage
-      - name: "RD6030 charge current"
-        unique_id: rd6030_charge_current_set
-        slave: 1
-        address: 9
-        input_type: holding
-        data_type: uint16
-        min: 0
-        max: 19.5
-        step: 0.01
-        scale: 0.01
-        offset: 0
-        precision: 2
-        unit_of_measurement: A
-        device_class: current
-    sensors:
-      - name: "RD6030 output voltage"
-        unique_id: rd6030_output_voltage_measure
-        slave: 1
-        address: 10
-        input_type: holding
-        data_type: uint16
-        scale: 0.01
-        unit_of_measurement: V
-        device_class: voltage
-        state_class: measurement
-      - name: "RD6030 output current"
-        unique_id: rd6030_output_current_measure
-        slave: 1
-        address: 11
-        input_type: holding
-        data_type: uint16
-        scale: 0.01
-        unit_of_measurement: A
-        device_class: current
-        state_class: measurement
-    switches:
-      - name: "RD6030 output enable"
-        unique_id: rd6030_output_enable_switch
-        slave: 1
-        address: 18
-        write_type: holding
-        command_on: 1
-        command_off: 0
-        verify_state: true
 
 template:
   - sensor:
