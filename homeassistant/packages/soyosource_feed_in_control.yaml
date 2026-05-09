@@ -1,0 +1,298 @@
+# Home Assistant package: feed-in control for Soyosource in manual mode.
+#
+# Preconditions:
+# - Home Assistant loads packages from homeassistant/packages/
+# - The ESPHome entities from electric_meter_ir.yaml and soyosource-victron-esp32.yaml exist
+# - switch.soyosource_victron_esp32_limiter_handbetrieb stays enabled while this controller is active
+
+input_boolean:
+  soyosource_feed_in_control_enabled:
+    name: Soyosource Einspeiseregelung aktiv
+    icon: mdi:transmission-tower-export
+
+  soyosource_feed_in_fail_safe_zero:
+    name: Soyosource Regler auf 0 W bei Messfehler
+    icon: mdi:shield-alert-outline
+
+input_number:
+  soyosource_feed_in_target_power:
+    name: Soyosource Netzleistungsziel
+    icon: mdi:target
+    min: -200
+    max: 200
+    step: 1
+    unit_of_measurement: W
+    mode: box
+    initial: 0
+
+  soyosource_feed_in_deadband:
+    # Total deadband width around the target, e.g. 10 W = +/- 5 W.
+    name: Soyosource Totband gesamt
+    icon: mdi:arrow-expand-horizontal
+    min: 0
+    max: 200
+    step: 5
+    unit_of_measurement: W
+    mode: slider
+    initial: 10
+
+  soyosource_feed_in_max_step:
+    name: Soyosource Maximaler Stellschritt
+    icon: mdi:stairs
+    min: 10
+    max: 400
+    step: 10
+    unit_of_measurement: W
+    mode: slider
+    initial: 150
+
+  soyosource_feed_in_stale_timeout:
+    name: Soyosource Messwert Timeout
+    icon: mdi:timer-alert-outline
+    min: 15
+    max: 300
+    step: 5
+    unit_of_measurement: s
+    mode: box
+    initial: 60
+
+sensor:
+  - platform: statistics
+    name: Soyosource Netzleistung Mittelwert
+    unique_id: soyosource_netzleistung_mittelwert
+    entity_id: sensor.stromzaehler_ir_wirkleistung
+    state_characteristic: mean
+    max_age:
+      seconds: 15
+    sampling_size: 20
+
+template:
+  - sensor:
+      - name: Soyosource Regeldifferenz
+        unique_id: soyosource_regeldifferenz
+        icon: mdi:delta
+        unit_of_measurement: W
+        state_class: measurement
+        availability: >
+          {{ states('sensor.soyosource_netzleistung_mittelwert') not in ['unknown', 'unavailable', 'none'] }}
+        state: >
+          {% set actual = states('sensor.soyosource_netzleistung_mittelwert') | float(0) %}
+          {% set target = states('input_number.soyosource_feed_in_target_power') | float(0) %}
+          {{ (actual - target) | round(0) }}
+
+      - name: Soyosource Naechste Sollleistung
+        unique_id: soyosource_naechste_sollleistung
+        icon: mdi:flash-triangle-outline
+        unit_of_measurement: W
+        state_class: measurement
+        availability: >
+          {{ states('number.soyosource_victron_esp32_manuelle_sollleistung') not in ['unknown', 'unavailable', 'none']
+             and states('number.soyosource_victron_esp32_maximale_sollleistung') not in ['unknown', 'unavailable', 'none']
+             and states('sensor.soyosource_regeldifferenz') not in ['unknown', 'unavailable', 'none'] }}
+        state: >
+          {% set current = states('number.soyosource_victron_esp32_manuelle_sollleistung') | float(0) %}
+          {% set error = states('sensor.soyosource_regeldifferenz') | float(0) %}
+          {% set deadband = (states('input_number.soyosource_feed_in_deadband') | float(0)) / 2 %}
+          {% set max_step = states('input_number.soyosource_feed_in_max_step') | float(0) %}
+          {% set max_power = states('number.soyosource_victron_esp32_maximale_sollleistung') | float(900) %}
+          {% if abs(error) <= deadband %}
+            {{ current | round(0) }}
+          {% else %}
+            {% if error > 0 %}
+              {% set correction = [error, max_step] | min %}
+            {% else %}
+              {% set correction = [error, -max_step] | max %}
+            {% endif %}
+            {% set requested = current + correction %}
+            {{ [0, [requested, max_power] | min] | max | round(0) }}
+          {% endif %}
+
+      - name: Soyosource Reglerstatus
+        unique_id: soyosource_reglerstatus
+        icon: mdi:information-outline
+        state: >
+          {% set enabled = is_state('input_boolean.soyosource_feed_in_control_enabled', 'on') %}
+          {% set fresh = is_state('binary_sensor.soyosource_messwert_frisch', 'on') %}
+          {% set manual = is_state('switch.soyosource_victron_esp32_limiter_handbetrieb', 'on') %}
+          {% set error = states('sensor.soyosource_regeldifferenz') | float(0) %}
+          {% set deadband = (states('input_number.soyosource_feed_in_deadband') | float(0)) / 2 %}
+          {% set at_max = is_state('binary_sensor.soyosource_regler_am_maximum', 'on') %}
+          {% set at_min = is_state('binary_sensor.soyosource_regler_am_minimum', 'on') %}
+          {% if not enabled %}
+            deaktiviert
+          {% elif not fresh %}
+            Messwert veraltet
+          {% elif not manual %}
+            Handbetrieb wird aktiviert
+          {% elif at_max %}
+            am Maximum begrenzt
+          {% elif at_min %}
+            am Minimum begrenzt
+          {% elif abs(error) <= deadband %}
+            im Totband
+          {% elif error > 0 %}
+            Leistung erhoehen
+          {% else %}
+            Leistung senken
+          {% endif %}
+
+  - binary_sensor:
+      - name: Soyosource Messwert Frisch
+        unique_id: soyosource_messwert_frisch
+        icon: mdi:meter-electric
+        state: >
+          {% set meter = states.sensor.stromzaehler_ir_wirkleistung %}
+          {% set timeout = states('input_number.soyosource_feed_in_stale_timeout') | int(60) %}
+          {{ meter is not none
+             and meter.state not in ['unknown', 'unavailable', 'none']
+             and (as_timestamp(now()) - as_timestamp(meter.last_updated)) < timeout }}
+
+      - name: Soyosource Regler Im Totband
+        unique_id: soyosource_regler_im_totband
+        icon: mdi:vector-polyline-minus
+        state: >
+          {% set error = states('sensor.soyosource_regeldifferenz') | float(0) %}
+          {% set deadband = (states('input_number.soyosource_feed_in_deadband') | float(0)) / 2 %}
+          {{ abs(error) <= deadband }}
+
+      - name: Soyosource Regler Am Maximum
+        unique_id: soyosource_regler_am_maximum
+        icon: mdi:arrow-collapse-up
+        state: >
+          {% set setpoint = states('number.soyosource_victron_esp32_manuelle_sollleistung') | float(0) %}
+          {% set max_power = states('number.soyosource_victron_esp32_maximale_sollleistung') | float(900) %}
+          {% set error = states('sensor.soyosource_regeldifferenz') | float(0) %}
+          {% set deadband = (states('input_number.soyosource_feed_in_deadband') | float(0)) / 2 %}
+          {{ setpoint >= max_power and error > deadband }}
+
+      - name: Soyosource Regler Am Minimum
+        unique_id: soyosource_regler_am_minimum
+        icon: mdi:arrow-collapse-down
+        state: >
+          {% set setpoint = states('number.soyosource_victron_esp32_manuelle_sollleistung') | float(0) %}
+          {% set error = states('sensor.soyosource_regeldifferenz') | float(0) %}
+          {% set deadband = (states('input_number.soyosource_feed_in_deadband') | float(0)) / 2 %}
+          {{ setpoint <= 0 and error < (deadband * -1) }}
+
+      - name: Soyosource Ziel Nicht Erreichbar
+        unique_id: soyosource_ziel_nicht_erreichbar
+        icon: mdi:alert-circle-outline
+        state: >
+          {{ is_state('binary_sensor.soyosource_regler_am_maximum', 'on')
+             or is_state('binary_sensor.soyosource_regler_am_minimum', 'on') }}
+
+automation:
+  - id: soyosource_feed_in_control_loop
+    alias: Soyosource Einspeiseregelung
+    description: Regelt die manuelle Soyosource-Sollleistung anhand der gemittelten Netzleistung.
+    mode: restart
+    trigger:
+      - platform: state
+        entity_id:
+          - sensor.soyosource_netzleistung_mittelwert
+          - input_number.soyosource_feed_in_target_power
+          - input_number.soyosource_feed_in_deadband
+          - input_number.soyosource_feed_in_max_step
+          - input_number.soyosource_feed_in_stale_timeout
+          - input_boolean.soyosource_feed_in_control_enabled
+      - platform: time_pattern
+        seconds: "/15"
+    condition:
+      - condition: state
+        entity_id: input_boolean.soyosource_feed_in_control_enabled
+        state: "on"
+    action:
+      - choose:
+          - conditions:
+              - condition: state
+                entity_id: binary_sensor.soyosource_messwert_frisch
+                state: "off"
+            sequence:
+              - choose:
+                  - conditions:
+                      - condition: state
+                        entity_id: input_boolean.soyosource_feed_in_fail_safe_zero
+                        state: "on"
+                    sequence:
+                      - service: number.set_value
+                        target:
+                          entity_id: number.soyosource_victron_esp32_manuelle_sollleistung
+                        data:
+                          value: 0
+              - stop: Messwert ist veraltet oder nicht verfuegbar.
+
+      - if:
+          - condition: state
+            entity_id: switch.soyosource_victron_esp32_limiter_handbetrieb
+            state: "off"
+        then:
+          - service: switch.turn_on
+            target:
+              entity_id: switch.soyosource_victron_esp32_limiter_handbetrieb
+
+      - variables:
+          current_setpoint: >
+            {{ states('number.soyosource_victron_esp32_manuelle_sollleistung') | float(0) }}
+          error_w: >
+            {{ states('sensor.soyosource_regeldifferenz') | float(0) }}
+          deadband_w: >
+            {{ (states('input_number.soyosource_feed_in_deadband') | float(0)) / 2 }}
+          max_step_w: >
+            {{ states('input_number.soyosource_feed_in_max_step') | float(0) }}
+          max_power_w: >
+            {{ states('number.soyosource_victron_esp32_maximale_sollleistung') | float(900) }}
+
+      - condition: template
+        value_template: "{{ abs(error_w) > deadband_w }}"
+
+      - variables:
+          correction_w: >
+            {% if error_w > 0 %}
+              {{ [error_w, max_step_w] | min }}
+            {% else %}
+              {{ [error_w, -max_step_w] | max }}
+            {% endif %}
+          next_setpoint: >
+            {% set requested = current_setpoint + (correction_w | float(0)) %}
+            {{ [0, [requested, max_power_w] | min] | max | round(0) }}
+
+      - condition: template
+        value_template: "{{ next_setpoint | float != current_setpoint | float }}"
+
+      - service: number.set_value
+        target:
+          entity_id: number.soyosource_victron_esp32_manuelle_sollleistung
+        data:
+          value: "{{ next_setpoint | float(0) }}"
+
+  - id: soyosource_feed_in_manual_mode_sync
+    alias: Soyosource Handbetrieb fuer HA-Regler
+    description: Aktiviert den Handbetrieb automatisch, solange der HA-Regler eingeschaltet ist.
+    mode: single
+    trigger:
+      - platform: state
+        entity_id: input_boolean.soyosource_feed_in_control_enabled
+        to: "on"
+    action:
+      - service: switch.turn_on
+        target:
+          entity_id: switch.soyosource_victron_esp32_limiter_handbetrieb
+
+  - id: soyosource_feed_in_disable_zero
+    alias: Soyosource Regler aus -> 0 W
+    description: Setzt die manuelle Sollleistung beim Deaktivieren optional auf 0 W.
+    mode: single
+    trigger:
+      - platform: state
+        entity_id: input_boolean.soyosource_feed_in_control_enabled
+        to: "off"
+    condition:
+      - condition: state
+        entity_id: input_boolean.soyosource_feed_in_fail_safe_zero
+        state: "on"
+    action:
+      - service: number.set_value
+        target:
+          entity_id: number.soyosource_victron_esp32_manuelle_sollleistung
+        data:
+          value: 0
