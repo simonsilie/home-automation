@@ -1,6 +1,8 @@
 # Home Assistant package: standalone RD6030W surplus charging for the battery.
 #
 # Load rd6030_device.yaml together with this package.
+# Together with soyosource_feed_in_control.yaml this replaces the old combined
+# package power_control_rd6030.yaml.
 # Do not load this package at the same time as power_control_rd6030.yaml because
 # both automations would control the same RD6030 entities.
 #
@@ -8,6 +10,8 @@
 # - Home Assistant loads packages from homeassistant/packages/
 # - sensor.stromzaehler_ir_wirkleistung exists and uses: positive = import, negative = export
 # - rd6030_device.yaml is loaded
+# - Mutual exclusion with Soyosource is handled through controller state.
+#   RD6030 only charges while Soyosource feed-in demand is near 0.
 
 input_boolean:
   rd6030_battery_surplus_charge_enabled:
@@ -185,7 +189,7 @@ template:
 automation:
   - id: rd6030_battery_surplus_charge_loop
     alias: RD6030 Batterie Ueberschussladen
-    description: Laedt die Batterie ueber den RD6030W nur bei gemitteltem Netz-Ueberschuss.
+    description: Laedt die Batterie ueber den RD6030W nur bei gemitteltem Netz-Ueberschuss und nur solange Soyosource nicht einspeist.
     mode: restart
     trigger:
       - platform: state
@@ -253,6 +257,10 @@ automation:
           deadband: "{{ (states('input_number.rd6030_battery_surplus_deadband_w') | float(0)) / 2 }}"
           max_current: "{{ states('input_number.rd6030_battery_max_charge_current_a') | float(15) }}"
           step: "{{ states('input_number.rd6030_battery_current_step_a') | float(0.5) }}"
+          soyosource_manual_setpoint: "{{ states('number.soyosource_victron_esp32_manuelle_sollleistung') | float(0) }}"
+          soyosource_limiter_setpoint: "{{ states('sensor.soyosource_victron_esp32_limiter_sollleistung') | float(0) }}"
+          soyosource_request: "{{ [soyosource_manual_setpoint | float(0), soyosource_limiter_setpoint | float(0)] | max }}"
+          soyosource_idle: "{{ soyosource_request | float(0) < 20 }}"
 
       - service: number.set_value
         target:
@@ -277,7 +285,12 @@ automation:
 
       - variables:
           available_w: "{{ [0, (export_surplus | float(0)) - (deadband | float(0))] | max }}"
-          target_current: "{{ [[(available_w | float(0)) / (v_safe | float(12)), 0] | max, max_current | float(15)] | min }}"
+          target_current: >
+            {% if not soyosource_idle %}
+              0
+            {% else %}
+              {{ [[(available_w | float(0)) / (v_safe | float(12)), 0] | max, max_current | float(15)] | min }}
+            {% endif %}
           next_current: >
             {% set target = target_current | float(0) %}
             {% set current_value = current | float(0) %}

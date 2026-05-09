@@ -1,9 +1,14 @@
 # Home Assistant package: feed-in control for Soyosource in manual mode.
 #
+# Together with rd6030_battery_surplus_charge.yaml this replaces the old
+# combined package power_control_rd6030.yaml.
+#
 # Preconditions:
 # - Home Assistant loads packages from homeassistant/packages/
 # - The ESPHome entities from electric_meter_ir.yaml and soyosource-victron-esp32.yaml exist
 # - switch.soyosource_victron_esp32_limiter_handbetrieb stays enabled while this controller is active
+# - Mutual exclusion with RD6030 surplus charging is handled through controller state.
+#   Soyosource stays at 0 W while RD6030 is actively charging.
 
 input_boolean:
   soyosource_feed_in_control_enabled:
@@ -184,7 +189,7 @@ template:
 automation:
   - id: soyosource_feed_in_control_loop
     alias: Soyosource Einspeiseregelung
-    description: Regelt die manuelle Soyosource-Sollleistung anhand der gemittelten Netzleistung.
+    description: Regelt die manuelle Soyosource-Sollleistung anhand der gemittelten Netzleistung und bleibt bei aktivem RD6030 auf 0 W.
     mode: restart
     trigger:
       - platform: state
@@ -241,6 +246,28 @@ automation:
             {{ states('input_number.soyosource_feed_in_max_step') | float(0) }}
           max_power_w: >
             {{ states('number.soyosource_victron_esp32_maximale_sollleistung') | float(900) }}
+          rd6030_current_a: >
+            {{ states('number.rd6030_charge_current') | float(0) }}
+          rd6030_output_enabled: >
+            {{ is_state('switch.rd6030_output_enable', 'on') }}
+          rd6030_active: >
+            {{ rd6030_output_enabled or (rd6030_current_a | float(0) > 0) }}
+
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ rd6030_active }}"
+            sequence:
+              - if:
+                  - condition: template
+                    value_template: "{{ current_setpoint | float(0) > 0 }}"
+                then:
+                  - service: number.set_value
+                    target:
+                      entity_id: number.soyosource_victron_esp32_manuelle_sollleistung
+                    data:
+                      value: 0
+              - stop: RD6030 verbraucht den Ueberschuss.
 
       - condition: template
         value_template: "{{ abs(error_w) > deadband_w }}"
