@@ -8,7 +8,7 @@
 #
 # Preconditions:
 # - Home Assistant loads packages from homeassistant/packages/
-# - sensor.stromzaehler_ir_wirkleistung exists and uses: positive = import, negative = export
+# - sensor.electric_meter_ir_active_power exists and uses: positive = import, negative = export
 # - rd6030_device.yaml is loaded
 # - Mutual exclusion with Soyosource is handled through controller state.
 #   RD6030 only charges while Soyosource feed-in demand is near 0.
@@ -82,7 +82,7 @@ sensor:
   - platform: statistics
     name: RD6030 Netzleistung Mittelwert
     unique_id: rd6030_netzleistung_mittelwert
-    entity_id: sensor.stromzaehler_ir_wirkleistung
+    entity_id: sensor.electric_meter_ir_active_power
     state_characteristic: mean
     max_age:
       seconds: 15
@@ -157,7 +157,7 @@ template:
         unique_id: rd6030_messwert_frisch
         icon: mdi:meter-electric
         state: >
-          {% set meter = states.sensor.stromzaehler_ir_wirkleistung %}
+          {% set meter = states.sensor.electric_meter_ir_active_power %}
           {% set timeout = states('input_number.rd6030_battery_stale_timeout_s') | int(60) %}
           {{ meter is not none
              and meter.state not in ['unknown', 'unavailable', 'none']
@@ -257,8 +257,8 @@ automation:
           deadband: "{{ (states('input_number.rd6030_battery_surplus_deadband_w') | float(0)) / 2 }}"
           max_current: "{{ states('input_number.rd6030_battery_max_charge_current_a') | float(15) }}"
           step: "{{ states('input_number.rd6030_battery_current_step_a') | float(0.5) }}"
-          soyosource_manual_setpoint: "{{ states('number.soyosource_victron_esp32_manuelle_sollleistung') | float(0) }}"
-          soyosource_limiter_setpoint: "{{ states('sensor.soyosource_victron_esp32_limiter_sollleistung') | float(0) }}"
+          soyosource_manual_setpoint: "{{ states('number.soyosource_victron_esp32_manual_power_demand') | float(0) }}"
+          soyosource_limiter_setpoint: "{{ states('sensor.soyosource_victron_esp32_limiter_power_demand') | float(0) }}"
           soyosource_request: "{{ [soyosource_manual_setpoint | float(0), soyosource_limiter_setpoint | float(0)] | max }}"
           soyosource_idle: "{{ soyosource_request | float(0) < 20 }}"
 

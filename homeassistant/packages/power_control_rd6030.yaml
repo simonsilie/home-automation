@@ -21,9 +21,9 @@
 # auf ~0 (kein Bedarf zum Einspeisen). Erst dann ist sichergestellt, dass der Netz-Export
 # wirklich aus dem Balkonkraftwerk stammt und nicht vom Wechselrichter selbst.
 #
-# Zähler: sensor.stromzaehler_ir_wirkleistung (positiv = Bezug, negativ = Einspeisung)
-# Soyosource: sensor.soyosource_victron_esp32_limiter_sollleistung,
-#             number.soyosource_victron_esp32_maximale_sollleistung
+# Zähler: sensor.electric_meter_ir_active_power (positiv = Bezug, negativ = Einspeisung)
+# Soyosource: sensor.soyosource_victron_esp32_limiter_power_demand,
+#             number.soyosource_victron_esp32_max_power_demand
 #
 # Sicherheit / Elektrik:
 # - Victron MPPT 100/20: maximal 20 A Ladestrom. Da der RD6030W im Ausgang etwas schwanken kann,
@@ -88,10 +88,10 @@ template:
         device_class: power
         state_class: measurement
         state: >
-          {% set p = states('sensor.stromzaehler_ir_wirkleistung') | float(0) %}
+          {% set p = states('sensor.electric_meter_ir_active_power') | float(0) %}
           {{ [0.0, 0.0 - p] | max | round(0) }}
         availability: >
-          {{ states('sensor.stromzaehler_ir_wirkleistung') not in ['unknown', 'unavailable', 'none', ''] }}
+          {{ states('sensor.electric_meter_ir_active_power') not in ['unknown', 'unavailable', 'none', ''] }}
 
 automation:
   - id: power_steuerung_rd6030_follow_surplus
@@ -128,7 +128,7 @@ automation:
                   entity_id: switch.rd6030_output_enable
               - service: number.set_value
                 target:
-                  entity_id: number.soyosource_victron_esp32_maximale_sollleistung
+                  entity_id: number.soyosource_victron_esp32_max_power_demand
                 data:
                   value: "{{ states('input_number.rd6030_soyosource_restore_max_w') | float(600) }}"
         default:
@@ -142,7 +142,7 @@ automation:
               v_meas: "{{ states('sensor.rd6030_output_voltage') | float(12) }}"
               v_safe: "{{ [v_meas | float(12), v_min | float(12)] | max }}"
               cur: "{{ states('number.rd6030_charge_current') | float(0) }}"
-              soy_demand: "{{ states('sensor.soyosource_victron_esp32_limiter_sollleistung') | float(0) }}"
+              soy_demand: "{{ states('sensor.soyosource_victron_esp32_limiter_power_demand') | float(0) }}"
               restore_max: "{{ states('input_number.rd6030_soyosource_restore_max_w') | float(600) }}"
               # Soyosource gilt als "aus" wenn virtuelle Sollleistung < 20 W
               soy_off: "{{ soy_demand < 20 }}"
@@ -167,7 +167,7 @@ automation:
                       entity_id: switch.rd6030_output_enable
                   - service: number.set_value
                     target:
-                      entity_id: number.soyosource_victron_esp32_maximale_sollleistung
+                      entity_id: number.soyosource_victron_esp32_max_power_demand
                     data:
                       value: "{{ restore_max }}"
               # PV-Überschuss: Grid exportiert UND Soyosource ist nahe 0
@@ -178,7 +178,7 @@ automation:
                 sequence:
                   - service: number.set_value
                     target:
-                      entity_id: number.soyosource_victron_esp32_maximale_sollleistung
+                      entity_id: number.soyosource_victron_esp32_max_power_demand
                     data:
                       value: 0
                   - variables:
@@ -231,7 +231,7 @@ automation:
                       entity_id: switch.rd6030_output_enable
                   - service: number.set_value
                     target:
-                      entity_id: number.soyosource_victron_esp32_maximale_sollleistung
+                      entity_id: number.soyosource_victron_esp32_max_power_demand
                     data:
                       value: "{{ restore_max }}"
 
@@ -258,6 +258,6 @@ automation:
           entity_id: switch.rd6030_output_enable
       - service: number.set_value
         target:
-          entity_id: number.soyosource_victron_esp32_maximale_sollleistung
+          entity_id: number.soyosource_victron_esp32_max_power_demand
         data:
           value: "{{ states('input_number.rd6030_soyosource_restore_max_w') | float(600) }}"

@@ -38,8 +38,8 @@ substitutions:
   pin_rs485_rx: GPIO16
   pin_ve_rx: GPIO4
   # Leistung am Hausanschluss (W), negativ = Einspeisung — für soyosource_virtual_meter
-  # Standard: IR-Zähler-Gerät (electric_meter_ir.yaml, device_name stromzaehler-ir) → sensor.stromzaehler_ir_wirkleistung
-  homeassistant_power_entity: sensor.stromzaehler_ir_wirkleistung
+  # Standard: IR-Zähler-Gerät (electric_meter_ir.yaml, device_name electric-meter-ir) → sensor.electric_meter_ir_active_power
+  homeassistant_power_entity: sensor.electric_meter_ir_active_power
   # Mittelungsfenster HA-Leistung = Takt soyosource_virtual_meter (keine Regel alle 3s bei Daten alle 15s)
   grid_power_average_interval: 15s
   # Maximale Einspeiseleistung des Soyosource GTN in Watt
@@ -133,26 +133,26 @@ victron:
 
 binary_sensor:
   - platform: status
-    name: Verbindung
+    name: Connection
 
 number:
   - platform: soyosource_virtual_meter
     soyosource_virtual_meter_id: virtual_meter_soyo
     buffer:
-      name: Limiter Puffer
+      name: Limiter Buffer
       initial_value: 10
       restore_value: true
     manual_power_demand:
-      name: Manuelle Sollleistung
+      name: Manual Power Demand
       max_value: ${max_inverter_power}
     max_power_demand:
-      name: Maximale Sollleistung
+      name: Max Power Demand
       initial_value: ${max_inverter_power}
       max_value: ${max_inverter_power}
       restore_value: true
     # Teilt Sollleistung auf N Inverter auf (1 = ein Inverter, keine Aufteilung)
     power_demand_divider:
-      name: Sollleistung Aufteiler
+      name: Power Demand Divider
       initial_value: 1
       restore_value: true
 
@@ -167,33 +167,33 @@ sensor:
   - platform: soyosource_virtual_meter
     soyosource_virtual_meter_id: virtual_meter_soyo
     power_demand:
-      name: Limiter Sollleistung
+      name: Limiter Power Demand
 
   - platform: victron
     victron_id: victron_mppt
     panel_voltage:
-      name: MPPT Panel Spannung
+      name: MPPT Panel Voltage
     panel_power:
-      name: MPPT Panel Leistung
+      name: MPPT Panel Power
     battery_voltage:
-      name: MPPT Batterie Spannung
+      name: MPPT Battery Voltage
     battery_current:
-      name: MPPT Batterie Strom
+      name: MPPT Battery Current
     instantaneous_power:
-      name: MPPT Batterie Leistung Momentan
+      name: MPPT Battery Power
     yield_today:
-      name: MPPT Ertrag heute
+      name: MPPT Yield Today
     yield_total:
-      name: MPPT Ertrag gesamt
+      name: MPPT Yield Total
 
 switch:
   - platform: soyosource_virtual_meter
     soyosource_virtual_meter_id: virtual_meter_soyo
     manual_mode:
-      name: Limiter Handbetrieb
+      name: Limiter Manual Mode
       restore_mode: RESTORE_DEFAULT_ON
     emergency_power_off:
-      name: Limiter Not Aus
+      name: Limiter Emergency Off
       restore_mode: RESTORE_DEFAULT_OFF
 
 text_sensor:
@@ -201,16 +201,16 @@ text_sensor:
     name: ESPHome Version
   - platform: wifi_info
     ip_address:
-      name: IP-Adresse
+      name: IP Address
   - platform: soyosource_virtual_meter
     soyosource_virtual_meter_id: virtual_meter_soyo
     operation_mode:
-      name: Limiter Betriebsart
+      name: Limiter Operation Mode
   - platform: victron
     victron_id: victron_mppt
     charging_mode:
-      name: MPPT Lademodus
+      name: MPPT Charging Mode
     error:
-      name: MPPT Fehler
+      name: MPPT Error
     tracking_mode:
       name: MPPT MPP Tracking

@@ -14,8 +14,8 @@
 # Nach dem Flashen in HA: Energy-Dashboard mit Sensor „Bezug Gesamtenergie“ (kWh) verknüpfen.
 
 substitutions:
-  device_name: stromzaehler-ir
-  friendly_name: Stromzähler IR
+  device_name: electric-meter-ir
+  friendly_name: Electric Meter IR
   # Echte UART0-Konfiguration auf ESP8266: RX0=GPIO3, TX0=GPIO1.
   # Achtung: Logger bleibt auf baud_rate: 0, damit UART0 komplett frei ist.
   pin_rx: GPIO3
@@ -31,7 +31,7 @@ esphome:
   friendly_name: ${friendly_name}
   min_version: 2024.6.0
   project:
-    name: simon.stromzaehler-ir
+    name: simon.electric-meter-ir
     version: "1.0"
 
 esp8266:
@@ -64,7 +64,7 @@ web_server:
   port: 80
 
 uart:
-  id: uart_zaehler
+  id: uart_meter
   rx_pin: ${pin_rx}
   tx_pin: ${pin_tx}
   baud_rate: ${uart_baud_rate}
@@ -74,13 +74,13 @@ uart:
 
 # SML ist passiv (nur Empfang). Bei Prüfsummenfehlern in den Logs: UART auf 9600/8N1 probieren.
 sml:
-  id: sml_zaehler
-  uart_id: uart_zaehler
+  id: sml_meter
+  uart_id: uart_meter
 
 sensor:
   - platform: sml
-    name: Bezug Gesamtenergie
-    sml_id: sml_zaehler
+    name: Total Energy Import
+    sml_id: sml_meter
     obis_code: "1-0:1.8.0"
     unit_of_measurement: kWh
     accuracy_decimals: 4
@@ -91,8 +91,8 @@ sensor:
       # 14364 (Rohwert) * 0.0001 = 1.4364 kWh.
       - multiply: 0.0001
   - platform: sml
-    name: Einspeisung Gesamtenergie
-    sml_id: sml_zaehler
+    name: Total Energy Export
+    sml_id: sml_meter
     obis_code: "1-0:2.8.0"
     unit_of_measurement: kWh
     accuracy_decimals: 4
@@ -101,40 +101,40 @@ sensor:
     filters:
       - multiply: 0.0001
   - platform: sml
-    name: Wirkleistung
-    sml_id: sml_zaehler
+    name: Active Power
+    sml_id: sml_meter
     obis_code: "1-0:16.7.0"
     unit_of_measurement: W
     accuracy_decimals: 0
     device_class: power
     state_class: measurement
   - platform: sml
-    name: Wirkleistung L1
-    sml_id: sml_zaehler
+    name: Active Power L1
+    sml_id: sml_meter
     obis_code: "1-0:36.7.0"
     unit_of_measurement: W
     accuracy_decimals: 0
     device_class: power
     state_class: measurement
   - platform: sml
-    name: Wirkleistung L2
-    sml_id: sml_zaehler
+    name: Active Power L2
+    sml_id: sml_meter
     obis_code: "1-0:56.7.0"
     unit_of_measurement: W
     accuracy_decimals: 0
     device_class: power
     state_class: measurement
   - platform: sml
-    name: Wirkleistung L3
-    sml_id: sml_zaehler
+    name: Active Power L3
+    sml_id: sml_meter
     obis_code: "1-0:76.7.0"
     unit_of_measurement: W
     accuracy_decimals: 0
     device_class: power
     state_class: measurement
   - platform: sml
-    name: Spannung L1
-    sml_id: sml_zaehler
+    name: Voltage L1
+    sml_id: sml_meter
     obis_code: "1-0:32.7.0"
     unit_of_measurement: V
     accuracy_decimals: 1
@@ -144,8 +144,8 @@ sensor:
       # Skaler -1 → V
       - multiply: 0.1
   - platform: sml
-    name: Spannung L2
-    sml_id: sml_zaehler
+    name: Voltage L2
+    sml_id: sml_meter
     obis_code: "1-0:52.7.0"
     unit_of_measurement: V
     accuracy_decimals: 1
@@ -154,8 +154,8 @@ sensor:
     filters:
       - multiply: 0.1
   - platform: sml
-    name: Spannung L3
-    sml_id: sml_zaehler
+    name: Voltage L3
+    sml_id: sml_meter
     obis_code: "1-0:72.7.0"
     unit_of_measurement: V
     accuracy_decimals: 1
@@ -164,8 +164,8 @@ sensor:
     filters:
       - multiply: 0.1
   - platform: sml
-    name: Strom L1
-    sml_id: sml_zaehler
+    name: Current L1
+    sml_id: sml_meter
     obis_code: "1-0:31.7.0"
     unit_of_measurement: A
     accuracy_decimals: 2
@@ -175,8 +175,8 @@ sensor:
       # Skaler -2 → A
       - multiply: 0.01
   - platform: sml
-    name: Strom L2
-    sml_id: sml_zaehler
+    name: Current L2
+    sml_id: sml_meter
     obis_code: "1-0:51.7.0"
     unit_of_measurement: A
     accuracy_decimals: 2
@@ -185,8 +185,8 @@ sensor:
     filters:
       - multiply: 0.01
   - platform: sml
-    name: Strom L3
-    sml_id: sml_zaehler
+    name: Current L3
+    sml_id: sml_meter
     obis_code: "1-0:71.7.0"
     unit_of_measurement: A
     accuracy_decimals: 2
@@ -195,8 +195,8 @@ sensor:
     filters:
       - multiply: 0.01
   - platform: sml
-    name: Netzfrequenz
-    sml_id: sml_zaehler
+    name: Grid Frequency
+    sml_id: sml_meter
     obis_code: "1-0:14.7.0"
     unit_of_measurement: Hz
     accuracy_decimals: 1
@@ -206,8 +206,8 @@ sensor:
       # Skaler -1 → Hz
       - multiply: 0.1
   - platform: sml
-    name: Phasenwinkel U_L2 zu U_L1
-    sml_id: sml_zaehler
+    name: Phase Angle U_L2 U_L1
+    sml_id: sml_meter
     obis_code: "1-0:81.7.1"
     unit_of_measurement: "°"
     accuracy_decimals: 1
@@ -217,8 +217,8 @@ sensor:
       # Skaler -1 → Grad
       - multiply: 0.1
   - platform: sml
-    name: Phasenwinkel U_L3 zu U_L1
-    sml_id: sml_zaehler
+    name: Phase Angle U_L3 U_L1
+    sml_id: sml_meter
     obis_code: "1-0:81.7.2"
     unit_of_measurement: "°"
     accuracy_decimals: 1
@@ -227,8 +227,8 @@ sensor:
     filters:
       - multiply: 0.1
   - platform: sml
-    name: Phasenwinkel I_L1 zu U_L1
-    sml_id: sml_zaehler
+    name: Phase Angle I_L1 U_L1
+    sml_id: sml_meter
     obis_code: "1-0:81.7.4"
     unit_of_measurement: "°"
     accuracy_decimals: 1
@@ -237,8 +237,8 @@ sensor:
     filters:
       - multiply: 0.1
   - platform: sml
-    name: Phasenwinkel I_L2 zu U_L2
-    sml_id: sml_zaehler
+    name: Phase Angle I_L2 U_L2
+    sml_id: sml_meter
     obis_code: "1-0:81.7.15"
     unit_of_measurement: "°"
     accuracy_decimals: 1
@@ -247,8 +247,8 @@ sensor:
     filters:
       - multiply: 0.1
   - platform: sml
-    name: Phasenwinkel I_L3 zu U_L3
-    sml_id: sml_zaehler
+    name: Phase Angle I_L3 U_L3
+    sml_id: sml_meter
     obis_code: "1-0:81.7.26"
     unit_of_measurement: "°"
     accuracy_decimals: 1
@@ -259,32 +259,32 @@ sensor:
 
 binary_sensor:
   - platform: status
-    name: Verbindung
+    name: Connection
 
 text_sensor:
   - platform: version
     name: ESPHome Version
   - platform: wifi_info
     ip_address:
-      name: IP-Adresse
+      name: IP Address
   - platform: sml
-    name: Zaehlernummer
-    sml_id: sml_zaehler
+    name: Meter Number
+    sml_id: sml_meter
     obis_code: "1-0:96.1.0"
     format: hex
   - platform: sml
-    name: Hersteller-ID
-    sml_id: sml_zaehler
+    name: Manufacturer ID
+    sml_id: sml_meter
     obis_code: "1-0:96.50.1"
     format: text
   - platform: sml
-    name: Firmware-Version
-    sml_id: sml_zaehler
+    name: Firmware Version
+    sml_id: sml_meter
     obis_code: "1-0:0.2.0"
     format: text
   - platform: sml
-    name: Statuswort
-    sml_id: sml_zaehler
+    name: Status Word
+    sml_id: sml_meter
     obis_code: "1-0:96.90.2"
     format: hex
     disabled_by_default: true
