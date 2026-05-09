@@ -1,0 +1,334 @@
+# Home Assistant package: standalone RD6030W surplus charging for the battery.
+#
+# Load rd6030_device.yaml together with this package.
+# Do not load this package at the same time as power_control_rd6030.yaml because
+# both automations would control the same RD6030 entities.
+#
+# Preconditions:
+# - Home Assistant loads packages from homeassistant/packages/
+# - sensor.stromzaehler_ir_wirkleistung exists and uses: positive = import, negative = export
+# - rd6030_device.yaml is loaded
+
+input_boolean:
+  rd6030_battery_surplus_charge_enabled:
+    name: RD6030 Batterie laden mit Ueberschuss
+    icon: mdi:battery-charging-high
+
+  rd6030_battery_surplus_fail_safe_zero:
+    name: RD6030 auf 0 A bei Messfehler
+    icon: mdi:shield-alert-outline
+
+input_number:
+  rd6030_battery_surplus_deadband_w:
+    # Total deadband width around 0 W, e.g. 10 W = +/- 5 W.
+    name: RD6030 Ueberschuss-Totband gesamt
+    min: 0
+    max: 500
+    step: 10
+    unit_of_measurement: W
+    mode: box
+    initial: 10
+
+  rd6030_battery_max_charge_current_a:
+    name: RD6030 max. Ladestrom
+    min: 0
+    max: 19.5
+    step: 0.5
+    unit_of_measurement: A
+    mode: box
+    initial: 15
+
+  rd6030_battery_current_step_a:
+    name: RD6030 Stromschritt pro Zyklus
+    min: 0.1
+    max: 5
+    step: 0.1
+    unit_of_measurement: A
+    mode: box
+    initial: 0.5
+
+  rd6030_battery_charge_voltage_v:
+    name: RD6030 Ladespannung
+    min: 1
+    max: 60
+    step: 0.5
+    unit_of_measurement: V
+    mode: box
+    initial: 60
+
+  rd6030_battery_min_output_voltage_v:
+    name: RD6030 min. Ausgangsspannung fuer I-Berechnung
+    min: 1
+    max: 60
+    step: 0.5
+    unit_of_measurement: V
+    mode: box
+    initial: 12
+
+  rd6030_battery_stale_timeout_s:
+    name: RD6030 Messwert Timeout
+    min: 15
+    max: 300
+    step: 5
+    unit_of_measurement: s
+    mode: box
+    initial: 60
+
+sensor:
+  - platform: statistics
+    name: RD6030 Netzleistung Mittelwert
+    unique_id: rd6030_netzleistung_mittelwert
+    entity_id: sensor.stromzaehler_ir_wirkleistung
+    state_characteristic: mean
+    max_age:
+      seconds: 15
+    sampling_size: 20
+
+template:
+  - sensor:
+      - name: RD6030 Ueberschuss Mittelwert
+        unique_id: rd6030_ueberschuss_mittelwert
+        unit_of_measurement: W
+        device_class: power
+        state_class: measurement
+        availability: >
+          {{ states('sensor.rd6030_netzleistung_mittelwert') not in ['unknown', 'unavailable', 'none'] }}
+        state: >
+          {% set avg_grid = states('sensor.rd6030_netzleistung_mittelwert') | float(0) %}
+          {{ [0, 0 - avg_grid] | max | round(0) }}
+
+      - name: RD6030 Naechster Zielstrom
+        unique_id: rd6030_naechster_zielstrom
+        unit_of_measurement: A
+        device_class: current
+        state_class: measurement
+        availability: >
+          {{ states('number.rd6030_charge_current') not in ['unknown', 'unavailable', 'none']
+             and states('sensor.rd6030_ueberschuss_mittelwert') not in ['unknown', 'unavailable', 'none']
+             and states('sensor.rd6030_output_voltage') not in ['unknown', 'unavailable', 'none'] }}
+        state: >
+          {% set export_surplus = states('sensor.rd6030_ueberschuss_mittelwert') | float(0) %}
+          {% set deadband = (states('input_number.rd6030_battery_surplus_deadband_w') | float(0)) / 2 %}
+          {% set current = states('number.rd6030_charge_current') | float(0) %}
+          {% set step = states('input_number.rd6030_battery_current_step_a') | float(0.5) %}
+          {% set max_current = states('input_number.rd6030_battery_max_charge_current_a') | float(15) %}
+          {% set v_min = states('input_number.rd6030_battery_min_output_voltage_v') | float(12) %}
+          {% set v_meas = states('sensor.rd6030_output_voltage') | float(12) %}
+          {% set v_safe = [v_meas, v_min] | max %}
+          {% set available_w = [0, export_surplus - deadband] | max %}
+          {% set target = [[available_w / v_safe, 0] | max, max_current] | min %}
+          {% if target > current %}
+            {{ [current + step, target, max_current] | min | round(2) }}
+          {% elif target < current %}
+            {{ [current - step, target] | max | round(2) }}
+          {% else %}
+            {{ current | round(2) }}
+          {% endif %}
+
+      - name: RD6030 Reglerstatus
+        unique_id: rd6030_reglerstatus
+        icon: mdi:information-outline
+        state: >
+          {% set enabled = is_state('input_boolean.rd6030_battery_surplus_charge_enabled', 'on') %}
+          {% set fresh = is_state('binary_sensor.rd6030_messwert_frisch', 'on') %}
+          {% set deadband = (states('input_number.rd6030_battery_surplus_deadband_w') | float(0)) / 2 %}
+          {% set avg_grid = states('sensor.rd6030_netzleistung_mittelwert') | float(0) %}
+          {% set at_limit = is_state('binary_sensor.rd6030_am_stromlimit', 'on') %}
+          {% if not enabled %}
+            deaktiviert
+          {% elif not fresh %}
+            Messwert veraltet
+          {% elif is_state('binary_sensor.rd6030_spannung_zu_hoch', 'on') %}
+            Spannung zu hoch
+          {% elif at_limit %}
+            am Stromlimit
+          {% elif avg_grid < (deadband * -1) %}
+            Ueberschuss laden
+          {% else %}
+            kein Ueberschuss
+          {% endif %}
+
+  - binary_sensor:
+      - name: RD6030 Messwert Frisch
+        unique_id: rd6030_messwert_frisch
+        icon: mdi:meter-electric
+        state: >
+          {% set meter = states.sensor.stromzaehler_ir_wirkleistung %}
+          {% set timeout = states('input_number.rd6030_battery_stale_timeout_s') | int(60) %}
+          {{ meter is not none
+             and meter.state not in ['unknown', 'unavailable', 'none']
+             and (as_timestamp(now()) - as_timestamp(meter.last_updated)) < timeout }}
+
+      - name: RD6030 Im Totband
+        unique_id: rd6030_im_totband
+        state: >
+          {% set avg_grid = states('sensor.rd6030_netzleistung_mittelwert') | float(0) %}
+          {% set deadband = (states('input_number.rd6030_battery_surplus_deadband_w') | float(0)) / 2 %}
+          {{ avg_grid >= (deadband * -1) }}
+
+      - name: RD6030 Am Stromlimit
+        unique_id: rd6030_am_stromlimit
+        state: >
+          {% set next_current = states('sensor.rd6030_naechster_zielstrom') | float(0) %}
+          {% set max_current = states('input_number.rd6030_battery_max_charge_current_a') | float(15) %}
+          {% set export_surplus = states('sensor.rd6030_ueberschuss_mittelwert') | float(0) %}
+          {% set deadband = (states('input_number.rd6030_battery_surplus_deadband_w') | float(0)) / 2 %}
+          {{ next_current >= max_current and export_surplus > deadband }}
+
+      - name: RD6030 Spannung Zu Hoch
+        unique_id: rd6030_spannung_zu_hoch
+        state: >
+          {% set fixed_v = states('input_number.rd6030_battery_charge_voltage_v') | float(60) %}
+          {% set v_meas = states('sensor.rd6030_output_voltage') | float(0) %}
+          {{ v_meas > fixed_v }}
+
+automation:
+  - id: rd6030_battery_surplus_charge_loop
+    alias: RD6030 Batterie Ueberschussladen
+    description: Laedt die Batterie ueber den RD6030W nur bei gemitteltem Netz-Ueberschuss.
+    mode: restart
+    trigger:
+      - platform: state
+        entity_id:
+          - sensor.rd6030_netzleistung_mittelwert
+          - input_boolean.rd6030_battery_surplus_charge_enabled
+          - input_number.rd6030_battery_surplus_deadband_w
+          - input_number.rd6030_battery_max_charge_current_a
+          - input_number.rd6030_battery_current_step_a
+          - input_number.rd6030_battery_charge_voltage_v
+          - input_number.rd6030_battery_min_output_voltage_v
+          - input_number.rd6030_battery_stale_timeout_s
+      - platform: time_pattern
+        seconds: "/15"
+    action:
+      - choose:
+          - conditions:
+              - condition: state
+                entity_id: input_boolean.rd6030_battery_surplus_charge_enabled
+                state: "off"
+            sequence:
+              - service: number.set_value
+                target:
+                  entity_id: number.rd6030_charge_voltage
+                data:
+                  value: "{{ states('input_number.rd6030_battery_charge_voltage_v') | float(60) }}"
+              - service: number.set_value
+                target:
+                  entity_id: number.rd6030_charge_current
+                data:
+                  value: 0
+              - service: switch.turn_off
+                target:
+                  entity_id: switch.rd6030_output_enable
+              - stop: Regler ist deaktiviert.
+
+          - conditions:
+              - condition: state
+                entity_id: binary_sensor.rd6030_messwert_frisch
+                state: "off"
+            sequence:
+              - choose:
+                  - conditions:
+                      - condition: state
+                        entity_id: input_boolean.rd6030_battery_surplus_fail_safe_zero
+                        state: "on"
+                    sequence:
+                      - service: number.set_value
+                        target:
+                          entity_id: number.rd6030_charge_current
+                        data:
+                          value: 0
+                      - service: switch.turn_off
+                        target:
+                          entity_id: switch.rd6030_output_enable
+              - stop: Messwert ist veraltet oder nicht verfuegbar.
+
+      - variables:
+          fixed_v: "{{ states('input_number.rd6030_battery_charge_voltage_v') | float(60) }}"
+          v_meas: "{{ states('sensor.rd6030_output_voltage') | float(12) }}"
+          v_min: "{{ states('input_number.rd6030_battery_min_output_voltage_v') | float(12) }}"
+          v_safe: "{{ [v_meas | float(12), v_min | float(12)] | max }}"
+          current: "{{ states('number.rd6030_charge_current') | float(0) }}"
+          export_surplus: "{{ states('sensor.rd6030_ueberschuss_mittelwert') | float(0) }}"
+          deadband: "{{ (states('input_number.rd6030_battery_surplus_deadband_w') | float(0)) / 2 }}"
+          max_current: "{{ states('input_number.rd6030_battery_max_charge_current_a') | float(15) }}"
+          step: "{{ states('input_number.rd6030_battery_current_step_a') | float(0.5) }}"
+
+      - service: number.set_value
+        target:
+          entity_id: number.rd6030_charge_voltage
+        data:
+          value: "{{ fixed_v | float(60) }}"
+
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ v_meas | float(0) > fixed_v | float(60) }}"
+            sequence:
+              - service: number.set_value
+                target:
+                  entity_id: number.rd6030_charge_current
+                data:
+                  value: 0
+              - service: switch.turn_off
+                target:
+                  entity_id: switch.rd6030_output_enable
+              - stop: Ausgangsspannung liegt ueber der Sollspannung.
+
+      - variables:
+          available_w: "{{ [0, (export_surplus | float(0)) - (deadband | float(0))] | max }}"
+          target_current: "{{ [[(available_w | float(0)) / (v_safe | float(12)), 0] | max, max_current | float(15)] | min }}"
+          next_current: >
+            {% set target = target_current | float(0) %}
+            {% set current_value = current | float(0) %}
+            {% set step_value = step | float(0.5) %}
+            {% if target > current_value %}
+              {{ [current_value + step_value, target, max_current | float(15)] | min | round(2) }}
+            {% elif target < current_value %}
+              {{ [current_value - step_value, target] | max | round(2) }}
+            {% else %}
+              {{ current_value | round(2) }}
+            {% endif %}
+
+      - condition: template
+        value_template: "{{ next_current | float != current | float }}"
+
+      - service: number.set_value
+        target:
+          entity_id: number.rd6030_charge_current
+        data:
+          value: "{{ next_current | float(0) }}"
+
+      - if:
+          - condition: template
+            value_template: "{{ next_current | float(0) > 0 }}"
+        then:
+          - service: switch.turn_on
+            target:
+              entity_id: switch.rd6030_output_enable
+        else:
+          - service: switch.turn_off
+            target:
+              entity_id: switch.rd6030_output_enable
+
+  - id: rd6030_battery_surplus_cleanup
+    alias: RD6030 Ueberschussladen deaktiviert
+    mode: single
+    trigger:
+      - platform: state
+        entity_id: input_boolean.rd6030_battery_surplus_charge_enabled
+        to: "off"
+    action:
+      - service: number.set_value
+        target:
+          entity_id: number.rd6030_charge_voltage
+        data:
+          value: "{{ states('input_number.rd6030_battery_charge_voltage_v') | float(60) }}"
+      - service: number.set_value
+        target:
+          entity_id: number.rd6030_charge_current
+        data:
+          value: 0
+      - service: switch.turn_off
+        target:
+          entity_id: switch.rd6030_output_enable

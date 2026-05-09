@@ -1,0 +1,75 @@
+# Home Assistant package: shared RD6030W device entities.
+#
+# Load this package once when using any RD6030 automation package from this repository.
+# It only defines the Modbus/TCP connection and the RD6030 entities.
+#
+# Preconditions:
+# - Home Assistant loads packages from homeassistant/packages/
+# - secrets.yaml contains rd6030w_host
+
+modbus:
+  - name: rd6030
+    type: tcp
+    host: !secret rd6030w_host
+    port: 502
+    message_wait_milliseconds: 30
+    timeout: 5
+    numbers:
+      - name: "RD6030 charge voltage"
+        unique_id: rd6030_charge_voltage_set
+        slave: 1
+        address: 8
+        input_type: holding
+        data_type: uint16
+        min: 0
+        max: 60
+        step: 0.01
+        scale: 0.01
+        offset: 0
+        precision: 2
+        unit_of_measurement: V
+        device_class: voltage
+      - name: "RD6030 charge current"
+        unique_id: rd6030_charge_current_set
+        slave: 1
+        address: 9
+        input_type: holding
+        data_type: uint16
+        min: 0
+        max: 19.5
+        step: 0.01
+        scale: 0.01
+        offset: 0
+        precision: 2
+        unit_of_measurement: A
+        device_class: current
+    sensors:
+      - name: "RD6030 output voltage"
+        unique_id: rd6030_output_voltage_measure
+        slave: 1
+        address: 10
+        input_type: holding
+        data_type: uint16
+        scale: 0.01
+        unit_of_measurement: V
+        device_class: voltage
+        state_class: measurement
+      - name: "RD6030 output current"
+        unique_id: rd6030_output_current_measure
+        slave: 1
+        address: 11
+        input_type: holding
+        data_type: uint16
+        scale: 0.01
+        unit_of_measurement: A
+        device_class: current
+        state_class: measurement
+    switches:
+      - name: "RD6030 output enable"
+        unique_id: rd6030_output_enable_switch
+        slave: 1
+        address: 18
+        write_type: holding
+        command_on: 1
+        command_off: 0
+        verify_state: true
