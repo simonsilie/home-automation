@@ -286,7 +286,12 @@ automation:
           current_setpoint: >
             {{ states('number.soyosource_victron_esp32_manual_power_demand') | float(0) }}
           error_w: >
-            {{ states('sensor.soyosource_regeldifferenz') | float(0) }}
+            {% set averaged = states('sensor.soyosource_netzleistung_mittelwert') %}
+            {% set actual = averaged | float(0)
+               if averaged not in ['unknown', 'unavailable', 'none']
+               else states('sensor.soyosource_netzleistung_direkt') | float(0) %}
+            {% set target = states('input_number.soyosource_feed_in_target_power') | float(0) %}
+            {{ (actual - target) | round(0) }}
           deadband_w: >
             {{ (states('input_number.soyosource_feed_in_deadband') | float(0)) / 2 }}
           max_step_w: >
@@ -317,18 +322,18 @@ automation:
               - stop: RD6030 verbraucht den Ueberschuss.
 
       - condition: template
-        value_template: "{{ abs(error_w) > deadband_w }}"
+        value_template: "{{ abs(error_w | float(0)) > (deadband_w | float(0)) }}"
 
       - variables:
           correction_w: >
-            {% if error_w > 0 %}
-              {{ [error_w, max_step_w] | min }}
+            {% if error_w | float(0) > 0 %}
+              {{ [error_w | float(0), max_step_w | float(0)] | min }}
             {% else %}
-              {{ [error_w, -max_step_w] | max }}
+              {{ [error_w | float(0), -(max_step_w | float(0))] | max }}
             {% endif %}
           next_setpoint: >
-            {% set requested = current_setpoint + (correction_w | float(0)) %}
-            {{ [0, [requested, max_power_w] | min] | max | round(0) }}
+            {% set requested = (current_setpoint | float(0)) + (correction_w | float(0)) %}
+            {{ [0, [requested, max_power_w | float(900)] | min] | max | round(0) }}
 
       - condition: template
         value_template: "{{ next_setpoint | float != current_setpoint | float }}"
