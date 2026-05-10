@@ -1,0 +1,125 @@
+title: Energie Steuerung
+views:
+  - title: Uebersicht
+    path: energie-steuerung
+    icon: mdi:transmission-tower
+    cards:
+      - type: grid
+        columns: 2
+        square: false
+        cards:
+          - type: gauge
+            entity: sensor.electric_meter_ir_active_power
+            name: Netzleistung
+            min: -3000
+            max: 3000
+            severity:
+              green: -3000
+              yellow: -200
+              red: 200
+          - type: gauge
+            entity: sensor.opendtu_91fd98_ac_power
+            name: PV-Leistung
+            min: 0
+            max: 3000
+            severity:
+              green: 0
+              yellow: 1200
+              red: 2400
+          - type: tile
+            entity: sensor.soyosource_aktive_sollleistung
+            name: WR Sollleistung aktiv
+            features_position: bottom
+            vertical: false
+          - type: tile
+            entity: sensor.soyosource_reglerstatus
+            name: Feed-in-Control Status
+            color: primary
+
+      - type: entities
+        title: Wechselrichter Steuerung
+        show_header_toggle: false
+        entities:
+          - entity: switch.soyosource_victron_esp32_limiter_manual_mode
+            name: Handbetrieb
+          - entity: number.soyosource_victron_esp32_manual_power_demand
+            name: Manuelle Sollleistung
+          - entity: number.soyosource_victron_esp32_max_power_demand
+            name: Maximale Sollleistung
+          - entity: sensor.soyosource_victron_esp32_limiter_power_demand
+            name: Automatische Sollleistung ESPHome
+
+      - type: entities
+        title: Feed-in-Control Bedienung
+        show_header_toggle: false
+        entities:
+          - entity: input_boolean.soyosource_feed_in_control_enabled
+            name: HA-Regler aktiv
+          - entity: input_boolean.soyosource_feed_in_fail_safe_zero
+            name: Fail-safe auf 0 W
+          - entity: input_number.soyosource_feed_in_target_power
+            name: Netzleistungsziel
+          - entity: input_number.soyosource_feed_in_deadband
+            name: Totband
+          - entity: input_number.soyosource_feed_in_max_step
+            name: Maximaler Stellschritt
+          - entity: input_number.soyosource_feed_in_stale_timeout
+            name: Messwert-Timeout
+          - entity: input_text.soyosource_feed_in_meter_entity
+            name: Zaehler-Entity
+
+      - type: entities
+        title: Feed-in-Control Diagnose
+        show_header_toggle: false
+        state_color: true
+        entities:
+          - entity: sensor.soyosource_netzleistung_direkt
+            name: Netzleistung direkt
+          - entity: sensor.soyosource_netzleistung_mittelwert
+            name: Netzleistung Mittelwert
+          - entity: sensor.soyosource_regeldifferenz
+            name: Regeldifferenz
+          - entity: sensor.soyosource_naechste_sollleistung
+            name: Naechste Sollleistung
+          - entity: binary_sensor.soyosource_messwert_frisch
+            name: Messwert frisch
+          - entity: binary_sensor.soyosource_regler_im_totband
+            name: Im Totband
+          - entity: binary_sensor.soyosource_regler_am_maximum
+            name: Am Maximum
+          - entity: binary_sensor.soyosource_regler_am_minimum
+            name: Am Minimum
+          - entity: binary_sensor.soyosource_ziel_nicht_erreichbar
+            name: Ziel nicht erreichbar
+
+      - type: history-graph
+        title: Leistung letzte 2 Stunden
+        hours_to_show: 2
+        refresh_interval: 30
+        entities:
+          - entity: sensor.electric_meter_ir_active_power
+            name: Netz
+          - entity: sensor.opendtu_91fd98_ac_power
+            name: PV
+          - entity: number.soyosource_victron_esp32_manual_power_demand
+            name: WR Sollleistung
+
+      - type: entities
+        title: Zusammenspiel mit Ueberschussladen
+        show_header_toggle: false
+        state_color: true
+        entities:
+          - entity: input_boolean.rd6030_battery_surplus_charge_enabled
+            name: RD6030 Ueberschussladen aktiv
+          - entity: sensor.rd6030_reglerstatus
+            name: RD6030 Status
+          - entity: switch.rd6030_output_enable
+            name: RD6030 Ausgang
+          - entity: number.rd6030_charge_current
+            name: RD6030 Ladestrom
+
+      - type: markdown
+        content: |
+          ## Legende
+          Positive Netzleistung bedeutet Netzbezug.
+          Negative Netzleistung bedeutet Einspeisung bzw. verfuegbaren Ueberschuss.

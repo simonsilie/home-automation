@@ -53,3 +53,33 @@ Kurz gesagt:
 Beispiel:
 
 - [packages/soyosource_feed_in_control.yaml](packages/soyosource_feed_in_control.yaml)
+
+## Dashboard als YAML
+
+Die Dashboards liegen in [dashboards/](dashboards/). Das Beispiel-Dashboard liegt in
+[dashboards/dashboard_energy_control.yaml](dashboards/dashboard_energy_control.yaml).
+
+Damit Home Assistant es als config-as-code laedt, muss in der aktiven
+`configuration.yaml` ein YAML-Dashboard eingetragen sein:
+
+```yaml
+lovelace:
+  dashboards:
+    energie-steuerung:
+      mode: yaml
+      title: Energie Steuerung
+      icon: mdi:transmission-tower
+      show_in_sidebar: true
+      filename: dashboards/dashboard_energy_control.yaml
+```
+
+Danach den Ordner `dashboards/` in das aktive Home-Assistant-
+Konfigurationsverzeichnis legen und Home Assistant neu laden oder neu starten.
+
+Das Dashboard zeigt insbesondere:
+
+- aktuelle Netzleistung ueber `sensor.electric_meter_ir_active_power`
+- aktuelle PV-Leistung ueber `sensor.opendtu_91fd98_ac_power`
+- Handbetrieb und Sollleistung des Soyosource-Wechselrichters
+- Status, Parameter und Diagnose der HA-Feed-in-Control
+- den Bezug zum RD6030-Ueberschussladen
