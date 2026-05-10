@@ -72,4 +72,8 @@ modbus:
         write_type: holding
         command_on: 1
         command_off: 0
-        verify_state: true
+        verify:
+          input_type: holding
+          address: 18
+          state_on: 1
+          state_off: 0

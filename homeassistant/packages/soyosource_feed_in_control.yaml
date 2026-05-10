@@ -85,9 +85,7 @@ template:
         icon: mdi:transmission-tower
         unit_of_measurement: W
         state_class: measurement
-        availability: >
-          {% set meter_entity = states('input_text.soyosource_feed_in_meter_entity') | trim %}
-          {{ meter_entity != '' and states(meter_entity) not in ['unknown', 'unavailable', 'none', ''] }}
+        availability: "{{ true }}"
         state: >
           {% set meter_entity = states('input_text.soyosource_feed_in_meter_entity') | trim %}
           {{ states(meter_entity) | float(0) | round(0) }}
@@ -97,14 +95,7 @@ template:
         icon: mdi:flash
         unit_of_measurement: W
         state_class: measurement
-        availability: >
-          {{ (
-               is_state('switch.soyosource_victron_esp32_limiter_manual_mode', 'on')
-               and states('number.soyosource_victron_esp32_manual_power_demand') not in ['unknown', 'unavailable', 'none']
-             ) or (
-               not is_state('switch.soyosource_victron_esp32_limiter_manual_mode', 'on')
-               and states('sensor.soyosource_victron_esp32_limiter_power_demand') not in ['unknown', 'unavailable', 'none']
-             ) }}
+        availability: "{{ true }}"
         state: >
           {% if is_state('switch.soyosource_victron_esp32_limiter_manual_mode', 'on') %}
             {{ states('number.soyosource_victron_esp32_manual_power_demand') | float(0) | round(0) }}
@@ -117,9 +108,7 @@ template:
         icon: mdi:delta
         unit_of_measurement: W
         state_class: measurement
-        availability: >
-         {{ states('sensor.soyosource_netzleistung_mittelwert') not in ['unknown', 'unavailable', 'none']
-           or states('sensor.soyosource_netzleistung_direkt') not in ['unknown', 'unavailable', 'none'] }}
+        availability: "{{ true }}"
         state: >
           {% set averaged = states('sensor.soyosource_netzleistung_mittelwert') %}
           {% set actual = averaged | float(0)
@@ -133,17 +122,14 @@ template:
         icon: mdi:flash-triangle-outline
         unit_of_measurement: W
         state_class: measurement
-        availability: >
-          {{ states('number.soyosource_victron_esp32_manual_power_demand') not in ['unknown', 'unavailable', 'none']
-             and states('number.soyosource_victron_esp32_max_power_demand') not in ['unknown', 'unavailable', 'none']
-             and states('sensor.soyosource_regeldifferenz') not in ['unknown', 'unavailable', 'none'] }}
+        availability: "{{ true }}"
         state: >
           {% set current = states('number.soyosource_victron_esp32_manual_power_demand') | float(0) %}
           {% set error = states('sensor.soyosource_regeldifferenz') | float(0) %}
           {% set deadband = (states('input_number.soyosource_feed_in_deadband') | float(0)) / 2 %}
           {% set max_step = states('input_number.soyosource_feed_in_max_step') | float(0) %}
           {% set max_power = states('number.soyosource_victron_esp32_max_power_demand') | float(900) %}
-          {% if abs(error) <= deadband %}
+          {% if error | abs <= deadband %}
             {{ current | round(0) }}
           {% else %}
             {% if error > 0 %}
@@ -158,6 +144,7 @@ template:
       - name: Soyosource Reglerstatus
         unique_id: soyosource_reglerstatus
         icon: mdi:information-outline
+        availability: "{{ true }}"
         state: >
           {% set enabled = is_state('input_boolean.soyosource_feed_in_control_enabled', 'on') %}
           {% set fresh = is_state('binary_sensor.soyosource_messwert_frisch', 'on') %}
@@ -176,7 +163,7 @@ template:
             am Maximum begrenzt
           {% elif at_min %}
             am Minimum begrenzt
-          {% elif abs(error) <= deadband %}
+          {% elif (error | abs) <= deadband %}
             im Totband
           {% elif error > 0 %}
             Leistung erhoehen
@@ -188,28 +175,36 @@ template:
       - name: Soyosource Messwert Frisch
         unique_id: soyosource_messwert_frisch
         icon: mdi:meter-electric
+        availability: "{{ true }}"
         state: >
           {% set meter_entity = states('input_text.soyosource_feed_in_meter_entity') | trim %}
-          {% set meter = expand(meter_entity) | first %}
+          {% set meters = expand(meter_entity) %}
           {% set timeout = states('input_number.soyosource_feed_in_stale_timeout') | int(60) %}
-          {% if meter_entity == '' or meter is none or meter.state in ['unknown', 'unavailable', 'none', ''] %}
+          {% if meter_entity == '' or meters | count == 0 %}
             false
           {% else %}
-            {% set seen_at = meter.last_reported if meter.last_reported is defined else meter.last_updated %}
-            {{ (as_timestamp(now()) - as_timestamp(seen_at)) < timeout }}
+            {% set meter = meters | first %}
+            {% if meter.state in ['unknown', 'unavailable', 'none', ''] %}
+              false
+            {% else %}
+              {% set seen_at = meter.last_reported if meter.last_reported is defined else meter.last_updated %}
+              {{ (as_timestamp(now()) - as_timestamp(seen_at)) < timeout }}
+            {% endif %}
           {% endif %}
 
       - name: Soyosource Regler Im Totband
         unique_id: soyosource_regler_im_totband
         icon: mdi:vector-polyline-minus
+        availability: "{{ true }}"
         state: >
           {% set error = states('sensor.soyosource_regeldifferenz') | float(0) %}
           {% set deadband = (states('input_number.soyosource_feed_in_deadband') | float(0)) / 2 %}
-          {{ abs(error) <= deadband }}
+          {{ error | abs <= deadband }}
 
       - name: Soyosource Regler Am Maximum
         unique_id: soyosource_regler_am_maximum
         icon: mdi:arrow-collapse-up
+        availability: "{{ true }}"
         state: >
           {% set setpoint = states('number.soyosource_victron_esp32_manual_power_demand') | float(0) %}
           {% set max_power = states('number.soyosource_victron_esp32_max_power_demand') | float(900) %}
@@ -220,6 +215,7 @@ template:
       - name: Soyosource Regler Am Minimum
         unique_id: soyosource_regler_am_minimum
         icon: mdi:arrow-collapse-down
+        availability: "{{ true }}"
         state: >
           {% set setpoint = states('number.soyosource_victron_esp32_manual_power_demand') | float(0) %}
           {% set error = states('sensor.soyosource_regeldifferenz') | float(0) %}
@@ -229,6 +225,7 @@ template:
       - name: Soyosource Ziel Nicht Erreichbar
         unique_id: soyosource_ziel_nicht_erreichbar
         icon: mdi:alert-circle-outline
+        availability: "{{ true }}"
         state: >
           {{ is_state('binary_sensor.soyosource_regler_am_maximum', 'on')
              or is_state('binary_sensor.soyosource_regler_am_minimum', 'on') }}
@@ -322,7 +319,7 @@ automation:
               - stop: RD6030 verbraucht den Ueberschuss.
 
       - condition: template
-        value_template: "{{ abs(error_w | float(0)) > (deadband_w | float(0)) }}"
+        value_template: "{{ (error_w | float(0) | abs) > (deadband_w | float(0)) }}"
 
       - variables:
           correction_w: >
