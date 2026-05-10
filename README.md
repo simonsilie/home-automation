@@ -10,29 +10,30 @@ Das Repo ist in zwei Bereiche aufgeteilt:
 - [esphome/](esphome/) – ESPHome-Firmware-YAMLs für die ESP-Geräte
 - [homeassistant/](homeassistant/) – Home Assistant-Konfiguration (als Packages)
 
-### Datenfluss
+### Einspeiseregelung (Soyosource)
 
 ```mermaid
 flowchart TD
-    Batterie[(Batterie)]
+    Batterie[(Batterie)] -->|DC| Soyosource[Soyosource GTN\nWechselrichter]
+    Soyosource -->|AC| PCC[Hausanschluss PCC]
+    PCC -->|IR-Lesekopf| ESP8266[ESP8266\nelectric_meter_ir]
+    ESP8266 -->|Wirkleistung| HA[Home Assistant]
+    HA -->|Sollleistung| ESP32[ESP32\nsoyosource-victron]
+    ESP32 -->|RS485| Soyosource
+```
 
-    subgraph Leistung
-        Batterie -->|DC| Soyosource[Soyosource GTN\nWechselrichter]
-        Soyosource -->|AC| PCC[Hausanschluss PCC]
-        PCC -->|AC| RD6030W[RD6030W\nNetzteil]
-        RD6030W -->|DC| MPPT[Victron MPPT]
-        MPPT -->|DC laden| Batterie
-    end
+### Ueberschussladen (RD6030W)
 
-    subgraph Steuerung
-        PCC -->|IR-Lesekopf| ESP8266[ESP8266\nelectric_meter_ir]
-        ESP8266 -->|Wirkleistung| HA[Home Assistant]
-        HA -->|Sollleistung| ESP32[ESP32\nsoyosource-victron]
-        HA -->|Modbus/TCP| RD6030W
-        ESP32 -->|RS485| Soyosource
-        MPPT -->|VE.Direct| ESP32
-        ESP32 -->|Telemetrie| HA
-    end
+```mermaid
+flowchart TD
+    PCC[Hausanschluss PCC] -->|AC| RD6030W[RD6030W\nNetzteil]
+    RD6030W -->|DC| MPPT[Victron MPPT]
+    MPPT -->|DC laden| Batterie[(Batterie)]
+    PCC -->|IR-Lesekopf| ESP8266[ESP8266\nelectric_meter_ir]
+    ESP8266 -->|Wirkleistung| HA[Home Assistant]
+    HA -->|Modbus/TCP| RD6030W
+    MPPT -->|VE.Direct| ESP32[ESP32\nsoyosource-victron]
+    ESP32 -->|Telemetrie| HA
 ```
 
 Der Soyosource GTN ist direkt an der Batterie (DC) angeschlossen und speist über seinen
@@ -78,7 +79,9 @@ esphome run soyosource-victron-esp32.yaml
 
 | Datei | Zweck |
 | --- | --- |
-| [homeassistant/packages/power_control_rd6030.yaml](homeassistant/packages/power_control_rd6030.yaml) | Überschussladung eines Riden RD6030W über Modbus/TCP, koordiniert mit dem Soyosource-Limiter |
+| [homeassistant/packages/rd6030_device.yaml](homeassistant/packages/rd6030_device.yaml) | RD6030W Modbus/TCP-Entities |
+| [homeassistant/packages/rd6030_battery_surplus_charge.yaml](homeassistant/packages/rd6030_battery_surplus_charge.yaml) | Überschussladung der Batterie über den RD6030W |
+| [homeassistant/packages/soyosource_feed_in_control.yaml](homeassistant/packages/soyosource_feed_in_control.yaml) | Einspeiseregelung für den Soyosource im Handbetrieb |
 
 ### WLAN-Dongle des RD6030W
 
