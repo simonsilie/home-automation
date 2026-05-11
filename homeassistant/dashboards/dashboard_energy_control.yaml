@@ -61,8 +61,14 @@ views:
             name: Netzleistungsziel
           - entity: input_number.soyosource_feed_in_deadband
             name: Totband
+          - entity: input_number.soyosource_feed_in_gain
+            name: Regler Verstaerkung
           - entity: input_number.soyosource_feed_in_max_step
             name: Maximaler Stellschritt
+          - entity: input_number.soyosource_feed_in_settle_time
+            name: Beruhigungszeit
+          - entity: input_number.soyosource_feed_in_low_battery_voltage
+            name: Batterie Unterspannungsgrenze
           - entity: input_number.soyosource_feed_in_stale_timeout
             name: Messwert-Timeout
           - entity: input_text.soyosource_feed_in_meter_entity
@@ -81,8 +87,12 @@ views:
             name: Regeldifferenz
           - entity: sensor.soyosource_naechste_sollleistung
             name: Naechste Sollleistung
+          - entity: sensor.soyosource_victron_esp32_mppt_battery_voltage
+            name: Batterie Spannung
           - entity: binary_sensor.soyosource_messwert_frisch
             name: Messwert frisch
+          - entity: binary_sensor.soyosource_batterie_niedrig
+            name: Batterie niedrig
           - entity: binary_sensor.soyosource_regler_im_totband
             name: Im Totband
           - entity: binary_sensor.soyosource_regler_am_maximum

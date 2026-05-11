@@ -46,7 +46,17 @@ input_number:
     step: 5
     unit_of_measurement: W
     mode: slider
-    initial: 10
+    initial: 20
+
+  soyosource_feed_in_gain:
+    # Proportional gain (0..1). Lower = slower but more stable.
+    name: Soyosource Regler Verstaerkung
+    icon: mdi:knob
+    min: 0.1
+    max: 1.0
+    step: 0.05
+    mode: slider
+    initial: 0.5
 
   soyosource_feed_in_max_step:
     name: Soyosource Maximaler Stellschritt
@@ -58,6 +68,17 @@ input_number:
     mode: slider
     initial: 150
 
+  soyosource_feed_in_settle_time:
+    # Seconds to wait after each setpoint change before re-evaluating.
+    name: Soyosource Beruhigungszeit
+    icon: mdi:timer-sand
+    min: 0
+    max: 30
+    step: 1
+    unit_of_measurement: s
+    mode: slider
+    initial: 5
+
   soyosource_feed_in_stale_timeout:
     name: Soyosource Messwert Timeout
     icon: mdi:timer-alert-outline
@@ -67,6 +88,16 @@ input_number:
     unit_of_measurement: s
     mode: box
     initial: 60
+
+  soyosource_feed_in_low_battery_voltage:
+    name: Soyosource Batterie Unterspannungsgrenze
+    icon: mdi:battery-alert-variant-outline
+    min: 20
+    max: 30
+    step: 0.05
+    unit_of_measurement: V
+    mode: box
+    initial: 24.15
 
 sensor:
   - platform: statistics
@@ -129,13 +160,14 @@ template:
           {% set deadband = (states('input_number.soyosource_feed_in_deadband') | float(0)) / 2 %}
           {% set max_step = states('input_number.soyosource_feed_in_max_step') | float(0) %}
           {% set max_power = states('number.soyosource_victron_esp32_max_power_demand') | float(900) %}
+          {% set gain = states('input_number.soyosource_feed_in_gain') | float(0.5) %}
           {% if error | abs <= deadband %}
             {{ current | round(0) }}
           {% else %}
             {% if error > 0 %}
-              {% set correction = [error, max_step] | min %}
+              {% set correction = [(error * gain), max_step] | min %}
             {% else %}
-              {% set correction = [error, -max_step] | max %}
+              {% set correction = [(error * gain), -max_step] | max %}
             {% endif %}
             {% set requested = current + correction %}
             {{ [0, [requested, max_power] | min] | max | round(0) }}
@@ -230,18 +262,33 @@ template:
           {{ is_state('binary_sensor.soyosource_regler_am_maximum', 'on')
              or is_state('binary_sensor.soyosource_regler_am_minimum', 'on') }}
 
+      - name: Soyosource Batterie Niedrig
+        unique_id: soyosource_batterie_niedrig
+        icon: mdi:battery-alert-variant-outline
+        availability: "{{ true }}"
+        state: >
+          {% set voltage = states('sensor.soyosource_victron_esp32_mppt_battery_voltage') %}
+          {% set threshold = states('input_number.soyosource_feed_in_low_battery_voltage') | float(24.15) %}
+          {% if voltage in ['unknown', 'unavailable', 'none', ''] %}
+            false
+          {% else %}
+            {{ (voltage | float(0)) < threshold }}
+          {% endif %}
+
 automation:
   - id: soyosource_feed_in_control_loop
     alias: Soyosource Einspeiseregelung
     description: Regelt die manuelle Soyosource-Sollleistung anhand der gemittelten Netzleistung und bleibt bei aktivem RD6030 auf 0 W.
-    mode: restart
+    mode: single
     trigger:
       - platform: state
         entity_id:
           - sensor.soyosource_netzleistung_mittelwert
+          - sensor.soyosource_victron_esp32_mppt_battery_voltage
           - input_number.soyosource_feed_in_target_power
           - input_number.soyosource_feed_in_deadband
           - input_number.soyosource_feed_in_max_step
+          - input_number.soyosource_feed_in_low_battery_voltage
           - input_number.soyosource_feed_in_stale_timeout
           - input_boolean.soyosource_feed_in_control_enabled
       - platform: time_pattern
@@ -270,6 +317,23 @@ automation:
                           value: 0
               - stop: Messwert ist veraltet oder nicht verfuegbar.
 
+      - choose:
+          - conditions:
+              - condition: state
+                entity_id: binary_sensor.soyosource_batterie_niedrig
+                state: "on"
+            sequence:
+              - if:
+                  - condition: template
+                    value_template: "{{ states('number.soyosource_victron_esp32_manual_power_demand') | float(0) > 0 }}"
+                then:
+                  - service: number.set_value
+                    target:
+                      entity_id: number.soyosource_victron_esp32_manual_power_demand
+                    data:
+                      value: 0
+              - stop: Batteriespannung unter Unterspannungsgrenze.
+
       - if:
           - condition: state
             entity_id: switch.soyosource_victron_esp32_limiter_manual_mode
@@ -280,6 +344,8 @@ automation:
               entity_id: switch.soyosource_victron_esp32_limiter_manual_mode
 
       - variables:
+          gain: >
+            {{ states('input_number.soyosource_feed_in_gain') | float(0.5) }}
           current_setpoint: >
             {{ states('number.soyosource_victron_esp32_manual_power_demand') | float(0) }}
           error_w: >
@@ -324,9 +390,9 @@ automation:
       - variables:
           correction_w: >
             {% if error_w | float(0) > 0 %}
-              {{ [error_w | float(0), max_step_w | float(0)] | min }}
+              {{ [(error_w | float(0)) * (gain | float(0.5)), max_step_w | float(0)] | min }}
             {% else %}
-              {{ [error_w | float(0), -(max_step_w | float(0))] | max }}
+              {{ [(error_w | float(0)) * (gain | float(0.5)), -(max_step_w | float(0))] | max }}
             {% endif %}
           next_setpoint: >
             {% set requested = (current_setpoint | float(0)) + (correction_w | float(0)) %}
@@ -340,6 +406,9 @@ automation:
           entity_id: number.soyosource_victron_esp32_manual_power_demand
         data:
           value: "{{ next_setpoint | float(0) }}"
+
+      - delay:
+          seconds: "{{ states('input_number.soyosource_feed_in_settle_time') | int(5) }}"
 
   - id: soyosource_feed_in_manual_mode_sync
     alias: Soyosource Handbetrieb fuer HA-Regler
