@@ -36,11 +36,11 @@ input_number:
   rd6030_battery_max_charge_current_a:
     name: RD6030 max. Ladestrom
     min: 0
-    max: 19.5
+    max: 9
     step: 0.5
     unit_of_measurement: A
     mode: box
-    initial: 15
+    initial: 5
 
   rd6030_battery_current_step_a:
     name: RD6030 Stromschritt pro Zyklus
@@ -115,7 +115,7 @@ template:
           {% set deadband = (states('input_number.rd6030_battery_surplus_deadband_w') | float(0)) / 2 %}
           {% set current = states('number.rd6030_charge_current') | float(0) %}
           {% set step = states('input_number.rd6030_battery_current_step_a') | float(0.5) %}
-          {% set max_current = states('input_number.rd6030_battery_max_charge_current_a') | float(15) %}
+          {% set max_current = states('input_number.rd6030_battery_max_charge_current_a') | float(9) %}
           {% set v_min = states('input_number.rd6030_battery_min_output_voltage_v') | float(12) %}
           {% set v_meas = states('sensor.rd6030_output_voltage') | float(12) %}
           {% set v_safe = [v_meas, v_min] | max %}
@@ -174,7 +174,7 @@ template:
         unique_id: rd6030_am_stromlimit
         state: >
           {% set next_current = states('sensor.rd6030_naechster_zielstrom') | float(0) %}
-          {% set max_current = states('input_number.rd6030_battery_max_charge_current_a') | float(15) %}
+          {% set max_current = states('input_number.rd6030_battery_max_charge_current_a') | float(9) %}
           {% set export_surplus = states('sensor.rd6030_ueberschuss_mittelwert') | float(0) %}
           {% set deadband = (states('input_number.rd6030_battery_surplus_deadband_w') | float(0)) / 2 %}
           {{ next_current >= max_current and export_surplus > deadband }}
@@ -255,7 +255,7 @@ automation:
           current: "{{ states('number.rd6030_charge_current') | float(0) }}"
           export_surplus: "{{ states('sensor.rd6030_ueberschuss_mittelwert') | float(0) }}"
           deadband: "{{ (states('input_number.rd6030_battery_surplus_deadband_w') | float(0)) / 2 }}"
-          max_current: "{{ states('input_number.rd6030_battery_max_charge_current_a') | float(15) }}"
+          max_current: "{{ states('input_number.rd6030_battery_max_charge_current_a') | float(9) }}"
           step: "{{ states('input_number.rd6030_battery_current_step_a') | float(0.5) }}"
           soyosource_manual_setpoint: "{{ states('number.soyosource_victron_esp32_manual_power_demand') | float(0) }}"
           soyosource_limiter_setpoint: "{{ states('sensor.soyosource_victron_esp32_limiter_power_demand') | float(0) }}"
@@ -289,14 +289,14 @@ automation:
             {% if not soyosource_idle %}
               0
             {% else %}
-              {{ [[(available_w | float(0)) / (v_safe | float(12)), 0] | max, max_current | float(15)] | min }}
+              {{ [[(available_w | float(0)) / (v_safe | float(12)), 0] | max, max_current | float(5)] | min }}
             {% endif %}
           next_current: >
             {% set target = target_current | float(0) %}
             {% set current_value = current | float(0) %}
             {% set step_value = step | float(0.5) %}
             {% if target > current_value %}
-              {{ [current_value + step_value, target, max_current | float(15)] | min | round(2) }}
+              {{ [current_value + step_value, target, max_current | float(5)] | min | round(2) }}
             {% elif target < current_value %}
               {{ [current_value - step_value, target] | max | round(2) }}
             {% else %}
