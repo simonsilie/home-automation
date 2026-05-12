@@ -1,8 +1,5 @@
 # Home Assistant package: feed-in control for Soyosource in manual mode.
 #
-# Together with rd6030_battery_surplus_charge.yaml this replaces the old
-# combined package power_control_rd6030.yaml.
-#
 # Preconditions:
 # - Home Assistant loads packages from homeassistant/packages/
 # - The ESPHome entities from electric_meter_ir.yaml and soyosource-victron-esp32.yaml exist
@@ -97,7 +94,7 @@ input_number:
     step: 0.05
     unit_of_measurement: V
     mode: box
-    initial: 24.15
+    initial: 24
 
 sensor:
   - platform: statistics
@@ -269,8 +266,12 @@ template:
         state: >
           {% set voltage = states('sensor.soyosource_victron_esp32_mppt_battery_voltage') %}
           {% set threshold = states('input_number.soyosource_feed_in_low_battery_voltage') | float(24.15) %}
+          {% set release_threshold = threshold + 1 %}
+          {% set was_low = this.state == 'on' if this is defined and this.state is not none else false %}
           {% if voltage in ['unknown', 'unavailable', 'none', ''] %}
             false
+          {% elif was_low %}
+            {{ (voltage | float(0)) < release_threshold }}
           {% else %}
             {{ (voltage | float(0)) < threshold }}
           {% endif %}
