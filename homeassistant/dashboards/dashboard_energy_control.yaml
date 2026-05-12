@@ -1,6 +1,6 @@
 title: Energie Steuerung
 views:
-  - title: Uebersicht
+  - title: Energie Monitor
     path: energie-steuerung
     icon: mdi:transmission-tower
     cards:
@@ -11,12 +11,12 @@ views:
           - type: gauge
             entity: sensor.electric_meter_ir_active_power
             name: Netzleistung
-            min: -3000
-            max: 3000
+            min: -2000
+            max: 4000
             severity:
-              green: -3000
-              yellow: -200
-              red: 200
+              green: -2000
+              yellow: 10
+              red: 500
           - type: gauge
             entity: sensor.opendtu_91fd98_ac_power
             name: PV-Leistung
@@ -26,14 +26,31 @@ views:
               green: 0
               yellow: 1200
               red: 2400
-          - type: tile
+          - type: gauge
+            entity: sensor.soyosource_victron_esp32_mppt_panel_power
+            name: Batterie Eingangsleistung
+            min: 0
+            max: 1500
+            severity:
+              green: 0
+              yellow: 600
+              red: 1200
+          - type: gauge
             entity: sensor.soyosource_aktive_sollleistung
-            name: WR Sollleistung aktiv
-            features_position: bottom
-            vertical: false
+            name: Batterie Ausgangsleistung
+            min: 0
+            max: 1500
+            severity:
+              green: 0
+              yellow: 600
+              red: 1200
           - type: tile
             entity: sensor.soyosource_reglerstatus
             name: Feed-in-Control Status
+            color: primary
+          - type: tile
+            entity: sensor.rd6030_reglerstatus
+            name: RD6030 Ueberschussladen Status
             color: primary
 
       - type: entities
