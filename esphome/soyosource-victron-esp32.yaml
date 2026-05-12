@@ -168,6 +168,7 @@ sensor:
     soyosource_virtual_meter_id: virtual_meter_soyo
     power_demand:
       name: Limiter Power Demand
+      id: soyo_power_demand
 
   - platform: victron
     victron_id: victron_mppt
@@ -186,6 +187,24 @@ sensor:
     yield_total:
       name: MPPT Yield Total
 
+  # Estimated Soyosource energy from power_demand (no physical meter)
+  - platform: total_daily_energy
+    name: Soyosource Energy Today
+    power_id: soyo_power_demand
+    unit_of_measurement: kWh
+    accuracy_decimals: 3
+    filters:
+      - multiply: 0.001
+  - platform: integration
+    name: Soyosource Energy Total
+    sensor: soyo_power_demand
+    time_unit: h
+    unit_of_measurement: kWh
+    accuracy_decimals: 3
+    restore: true
+    filters:
+      - multiply: 0.001
+
 switch:
   - platform: soyosource_virtual_meter
     soyosource_virtual_meter_id: virtual_meter_soyo
@@ -195,6 +214,10 @@ switch:
     emergency_power_off:
       name: Limiter Emergency Off
       restore_mode: RESTORE_DEFAULT_OFF
+
+time:
+  - platform: homeassistant
+    id: ha_time
 
 text_sensor:
   - platform: version
