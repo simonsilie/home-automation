@@ -1,0 +1,13 @@
+# Home Assistant package: Waste collection schedule
+#
+# Preconditions:
+# - Home Assistant loads packages from homeassistant/packages/
+# - The waste_collection_schedule integration (HACS) is installed
+
+waste_collection_schedule:
+  sources:
+    - name: ics
+      args:
+        url: https://www.zfa-iserlohn.de/kalender_ecf613e6cce17fb1d27ecd54e768f1f4.ics
+  sensors:
+    - name: muell
