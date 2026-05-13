@@ -140,11 +140,11 @@ views:
             name: RD6030 Ueberschussladen aktiv
           - entity: input_boolean.rd6030_battery_surplus_fail_safe_zero
             name: Fail-safe auf 0 A
-          - entity: switch.rd6030_output_enable
+          - entity: switch.riden_psu_output
             name: RD6030 Ausgang
-          - entity: number.rd6030_charge_voltage
+          - entity: number.riden_psu_voltage_set
             name: RD6030 Ladespannung aktiv
-          - entity: number.rd6030_charge_current
+          - entity: number.riden_psu_current_set
             name: RD6030 Ladestrom
           - entity: input_number.rd6030_battery_charge_voltage_v
             name: Soll-Ladespannung
@@ -172,9 +172,9 @@ views:
             name: Netzleistung Mittelwert
           - entity: sensor.rd6030_naechster_zielstrom
             name: Naechster Zielstrom
-          - entity: sensor.rd6030_output_voltage
+          - entity: sensor.riden_psu_voltage_output
             name: Ausgangsspannung
-          - entity: sensor.rd6030_output_current
+          - entity: sensor.riden_psu_current_output
             name: Ausgangsstrom
           - entity: binary_sensor.rd6030_messwert_frisch
             name: Messwert frisch

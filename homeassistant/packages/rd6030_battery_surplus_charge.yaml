@@ -37,19 +37,19 @@ input_number:
     name: RD6030 max. Ladestrom
     min: 0
     max: 9
-    step: 0.5
+    step: 0.1
     unit_of_measurement: A
     mode: box
     initial: 5
 
   rd6030_battery_current_step_a:
     name: RD6030 Stromschritt pro Zyklus
-    min: 0.1
+    min: 0.01
     max: 5
-    step: 0.1
+    step: 0.01
     unit_of_measurement: A
     mode: box
-    initial: 0.5
+    initial: 0.1
 
   rd6030_battery_charge_voltage_v:
     name: RD6030 Ladespannung
@@ -107,17 +107,15 @@ template:
         device_class: current
         state_class: measurement
         availability: >
-          {{ states('number.rd6030_charge_current') not in ['unknown', 'unavailable', 'none']
-             and states('sensor.rd6030_ueberschuss_mittelwert') not in ['unknown', 'unavailable', 'none']
-             and states('sensor.rd6030_output_voltage') not in ['unknown', 'unavailable', 'none'] }}
+          {{ states('sensor.rd6030_ueberschuss_mittelwert') not in ['unknown', 'unavailable', 'none'] }}
         state: >
           {% set export_surplus = states('sensor.rd6030_ueberschuss_mittelwert') | float(0) %}
           {% set deadband = (states('input_number.rd6030_battery_surplus_deadband_w') | float(0)) / 2 %}
-          {% set current = states('number.rd6030_charge_current') | float(0) %}
+          {% set current = states('number.riden_psu_current_set') | float(0) %}
           {% set step = states('input_number.rd6030_battery_current_step_a') | float(0.5) %}
           {% set max_current = states('input_number.rd6030_battery_max_charge_current_a') | float(9) %}
           {% set v_min = states('input_number.rd6030_battery_min_output_voltage_v') | float(12) %}
-          {% set v_meas = states('sensor.rd6030_output_voltage') | float(12) %}
+          {% set v_meas = states('sensor.riden_psu_voltage_output') | float(12) %}
           {% set v_safe = [v_meas, v_min] | max %}
           {% set available_w = [0, export_surplus - deadband] | max %}
           {% set target = [[available_w / v_safe, 0] | max, max_current] | min %}
@@ -183,7 +181,7 @@ template:
         unique_id: rd6030_spannung_zu_hoch
         state: >
           {% set fixed_v = states('input_number.rd6030_battery_charge_voltage_v') | float(60) %}
-          {% set v_meas = states('sensor.rd6030_output_voltage') | float(0) %}
+          {% set v_meas = states('sensor.riden_psu_voltage_output') | float(0) %}
           {{ v_meas > fixed_v }}
 
 automation:
@@ -205,25 +203,35 @@ automation:
       - platform: time_pattern
         seconds: "/15"
     action:
+      - if:
+          - condition: template
+            value_template: >
+              {{ states('number.riden_psu_voltage_set') | float(-1)
+                 != states('input_number.rd6030_battery_charge_voltage_v') | float(60) }}
+        then:
+          - action: number.set_value
+            target:
+              entity_id: number.riden_psu_voltage_set
+            data:
+              value: "{{ states('input_number.rd6030_battery_charge_voltage_v') | float(60) }}"
+            continue_on_error: true
+
       - choose:
           - conditions:
               - condition: state
                 entity_id: input_boolean.rd6030_battery_surplus_charge_enabled
                 state: "off"
             sequence:
-              - service: number.set_value
+              - action: number.set_value
                 target:
-                  entity_id: number.rd6030_charge_voltage
-                data:
-                  value: "{{ states('input_number.rd6030_battery_charge_voltage_v') | float(60) }}"
-              - service: number.set_value
-                target:
-                  entity_id: number.rd6030_charge_current
+                  entity_id: number.riden_psu_current_set
                 data:
                   value: 0
-              - service: switch.turn_off
+                continue_on_error: true
+              - action: switch.turn_off
                 target:
-                  entity_id: switch.rd6030_output_enable
+                  entity_id: switch.riden_psu_output
+                continue_on_error: true
               - stop: Regler ist deaktiviert.
 
           - conditions:
@@ -237,22 +245,29 @@ automation:
                         entity_id: input_boolean.rd6030_battery_surplus_fail_safe_zero
                         state: "on"
                     sequence:
-                      - service: number.set_value
+                      - action: number.set_value
                         target:
-                          entity_id: number.rd6030_charge_current
+                          entity_id: number.riden_psu_current_set
                         data:
                           value: 0
-                      - service: switch.turn_off
+                        continue_on_error: true
+                      - action: switch.turn_off
                         target:
-                          entity_id: switch.rd6030_output_enable
+                          entity_id: switch.riden_psu_output
+                        continue_on_error: true
               - stop: Messwert ist veraltet oder nicht verfuegbar.
+
+      - condition: template
+        value_template: >
+          {{ states('sensor.rd6030_ueberschuss_mittelwert') not in ['unknown', 'unavailable', 'none']
+             and states('sensor.rd6030_netzleistung_mittelwert') not in ['unknown', 'unavailable', 'none'] }}
 
       - variables:
           fixed_v: "{{ states('input_number.rd6030_battery_charge_voltage_v') | float(60) }}"
-          v_meas: "{{ states('sensor.rd6030_output_voltage') | float(12) }}"
+          v_meas: "{{ states('sensor.riden_psu_voltage_output') | float(12) }}"
           v_min: "{{ states('input_number.rd6030_battery_min_output_voltage_v') | float(12) }}"
           v_safe: "{{ [v_meas | float(12), v_min | float(12)] | max }}"
-          current: "{{ states('number.rd6030_charge_current') | float(0) }}"
+          current: "{{ states('number.riden_psu_current_set') | float(0) }}"
           export_surplus: "{{ states('sensor.rd6030_ueberschuss_mittelwert') | float(0) }}"
           deadband: "{{ (states('input_number.rd6030_battery_surplus_deadband_w') | float(0)) / 2 }}"
           max_current: "{{ states('input_number.rd6030_battery_max_charge_current_a') | float(9) }}"
@@ -262,12 +277,6 @@ automation:
           soyosource_request: "{{ [soyosource_manual_setpoint | float(0), soyosource_limiter_setpoint | float(0)] | max }}"
           soyosource_idle: "{{ soyosource_request | float(0) < 20 }}"
 
-      - service: number.set_value
-        target:
-          entity_id: number.rd6030_charge_voltage
-        data:
-          value: "{{ fixed_v | float(60) }}"
-
       - choose:
           - conditions:
               - condition: template
@@ -275,12 +284,14 @@ automation:
             sequence:
               - service: number.set_value
                 target:
-                  entity_id: number.rd6030_charge_current
+                  entity_id: number.riden_psu_current_set
                 data:
                   value: 0
+                continue_on_error: true
               - service: switch.turn_off
                 target:
-                  entity_id: switch.rd6030_output_enable
+                  entity_id: switch.riden_psu_output
+                continue_on_error: true
               - stop: Ausgangsspannung liegt ueber der Sollspannung.
 
       - variables:
@@ -308,9 +319,10 @@ automation:
 
       - service: number.set_value
         target:
-          entity_id: number.rd6030_charge_current
+          entity_id: number.riden_psu_current_set
         data:
           value: "{{ next_current | float(0) }}"
+        continue_on_error: true
 
       - if:
           - condition: template
@@ -318,30 +330,11 @@ automation:
         then:
           - service: switch.turn_on
             target:
-              entity_id: switch.rd6030_output_enable
+              entity_id: switch.riden_psu_output
+            continue_on_error: true
         else:
           - service: switch.turn_off
             target:
-              entity_id: switch.rd6030_output_enable
+              entity_id: switch.riden_psu_output
+            continue_on_error: true
 
-  - id: rd6030_battery_surplus_cleanup
-    alias: RD6030 Ueberschussladen deaktiviert
-    mode: single
-    trigger:
-      - platform: state
-        entity_id: input_boolean.rd6030_battery_surplus_charge_enabled
-        to: "off"
-    action:
-      - service: number.set_value
-        target:
-          entity_id: number.rd6030_charge_voltage
-        data:
-          value: "{{ states('input_number.rd6030_battery_charge_voltage_v') | float(60) }}"
-      - service: number.set_value
-        target:
-          entity_id: number.rd6030_charge_current
-        data:
-          value: 0
-      - service: switch.turn_off
-        target:
-          entity_id: switch.rd6030_output_enable

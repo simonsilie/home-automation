@@ -1,0 +1,483 @@
+# ESPHome configuration for Riden Power Supply (RD60xx series)
+#
+# This communicates with Riden power supplies via Modbus RTU over UART.
+# Hardware: ESP8266 (ESP-12F) module inside the Riden WiFi dongle.
+#
+# Supported models: RD6006, RD6006P, RD6012, RD6012P, RD6018, RD6024, RD6030
+#
+# IMPORTANT: Adjust the scaling substitutions below for your specific model.
+# Default values work for RD6012, RD6018, RD6024, RD6030.
+
+substitutions:
+  device_name: riden-psu
+  friendly_name: "Riden PSU"
+
+  # --- Scaling factors (reciprocals of register multipliers) ---
+  # Adjust these for your power supply model:
+  #
+  # RD6012 / RD6018 / RD6024 / RD6030 (default):
+  #   v_scale: "0.01"   i_scale: "0.01"   p_scale: "0.01"
+  #
+  # RD6006:
+  #   v_scale: "0.01"   i_scale: "0.001"  p_scale: "0.01"
+  #
+  # RD6006P:
+  #   v_scale: "0.001"  i_scale: "0.0001" p_scale: "0.001"
+  #
+  # RD6012P:
+  #   v_scale: "0.001"  i_scale: "0.01"   p_scale: "0.001"
+  #
+  v_scale: "0.01"
+  i_scale: "0.01"
+  p_scale: "0.01"
+  v_in_scale: "0.01"
+
+  # Register multipliers (reciprocals of scale factors, used for writing)
+  v_multi: "100"
+  i_multi: "100"
+
+  # Max voltage/current for your model (used for number entity ranges)
+  v_max: "61"
+  i_max: "18.1"
+
+  # Modbus UART baud rate (must match the power supply setting)
+  uart_baud: "9600"
+
+esphome:
+  name: ${device_name}
+  friendly_name: ${friendly_name}
+
+esp8266:
+  board: esp12e
+
+# UART0 is used for Modbus, so disable serial logging.
+# Debug output goes to UART1 (TX-only on GPIO2).
+logger:
+  hardware_uart: UART1
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: "${device_name}"
+
+captive_portal:
+
+api:
+  encryption:
+    key: !secret api_encryption_key
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+web_server:
+  port: 80
+
+# --- UART & Modbus ---
+
+uart:
+  id: uart_modbus
+  tx_pin: GPIO1
+  rx_pin: GPIO3
+  baud_rate: ${uart_baud}
+  stop_bits: 1
+  parity: NONE
+
+modbus:
+  id: modbus_riden
+  uart_id: uart_modbus
+
+modbus_controller:
+  - id: riden
+    address: 1
+    modbus_id: modbus_riden
+    setup_priority: -10
+    update_interval: 2s
+    command_throttle: 50ms
+
+# =============================================================================
+# SENSORS (read-only measurements)
+# =============================================================================
+
+sensor:
+  # --- Identification ---
+
+  - platform: modbus_controller
+    modbus_controller_id: riden
+    name: "Model ID"
+    id: model_id
+    register_type: holding
+    address: 0
+    value_type: U_WORD
+    icon: mdi:information-outline
+    entity_category: diagnostic
+
+  - platform: modbus_controller
+    modbus_controller_id: riden
+    name: "Firmware Version"
+    register_type: holding
+    address: 3
+    value_type: U_WORD
+    icon: mdi:chip
+    entity_category: diagnostic
+
+  # --- Output Measurements ---
+
+  - platform: modbus_controller
+    modbus_controller_id: riden
+    name: "Voltage Output"
+    register_type: holding
+    address: 10
+    value_type: U_WORD
+    unit_of_measurement: "V"
+    device_class: voltage
+    state_class: measurement
+    accuracy_decimals: 3
+    filters:
+      - multiply: ${v_scale}
+
+  - platform: modbus_controller
+    modbus_controller_id: riden
+    name: "Current Output"
+    register_type: holding
+    address: 11
+    value_type: U_WORD
+    unit_of_measurement: "A"
+    device_class: current
+    state_class: measurement
+    accuracy_decimals: 4
+    filters:
+      - multiply: ${i_scale}
+
+  - platform: modbus_controller
+    modbus_controller_id: riden
+    name: "Power Output"
+    register_type: holding
+    address: 12
+    value_type: U_DWORD
+    unit_of_measurement: "W"
+    device_class: power
+    state_class: measurement
+    accuracy_decimals: 3
+    filters:
+      - multiply: ${p_scale}
+
+  # --- Input ---
+
+  - platform: modbus_controller
+    modbus_controller_id: riden
+    name: "Voltage Input"
+    register_type: holding
+    address: 14
+    value_type: U_WORD
+    unit_of_measurement: "V"
+    device_class: voltage
+    state_class: measurement
+    accuracy_decimals: 2
+    filters:
+      - multiply: ${v_in_scale}
+
+  # --- Temperatures ---
+  # Temperature registers use sign (reg N) + value (reg N+1).
+  # We read as U_DWORD and decode with a lambda.
+
+  - platform: modbus_controller
+    modbus_controller_id: riden
+    name: "System Temperature"
+    register_type: holding
+    address: 4
+    value_type: U_DWORD
+    unit_of_measurement: "°C"
+    device_class: temperature
+    state_class: measurement
+    accuracy_decimals: 0
+    icon: mdi:thermometer
+    lambda: |-
+      uint16_t sign_reg = (uint32_t(x) >> 16) & 0xFFFF;
+      uint16_t value_reg = uint32_t(x) & 0xFFFF;
+      return sign_reg == 0 ? (float)value_reg : -(float)value_reg;
+
+  - platform: modbus_controller
+    modbus_controller_id: riden
+    name: "Probe Temperature"
+    register_type: holding
+    address: 34
+    value_type: U_DWORD
+    unit_of_measurement: "°C"
+    device_class: temperature
+    state_class: measurement
+    accuracy_decimals: 0
+    icon: mdi:thermometer-probe
+    lambda: |-
+      uint16_t sign_reg = (uint32_t(x) >> 16) & 0xFFFF;
+      uint16_t value_reg = uint32_t(x) & 0xFFFF;
+      return sign_reg == 0 ? (float)value_reg : -(float)value_reg;
+
+  # --- Energy Counters ---
+
+  - platform: modbus_controller
+    modbus_controller_id: riden
+    name: "Amp-Hours"
+    register_type: holding
+    address: 38
+    value_type: U_DWORD
+    unit_of_measurement: "Ah"
+    accuracy_decimals: 3
+    icon: mdi:battery-charging
+    filters:
+      - multiply: 0.001
+
+  - platform: modbus_controller
+    modbus_controller_id: riden
+    name: "Watt-Hours"
+    register_type: holding
+    address: 40
+    value_type: U_DWORD
+    unit_of_measurement: "Wh"
+    device_class: energy
+    state_class: total_increasing
+    accuracy_decimals: 3
+    icon: mdi:lightning-bolt
+    filters:
+      - multiply: 0.001
+
+  # --- Battery ---
+
+  - platform: modbus_controller
+    modbus_controller_id: riden
+    name: "Battery Voltage"
+    register_type: holding
+    address: 33
+    value_type: U_WORD
+    unit_of_measurement: "V"
+    device_class: voltage
+    state_class: measurement
+    accuracy_decimals: 2
+    icon: mdi:car-battery
+    filters:
+      - multiply: ${v_scale}
+
+  # --- WiFi Signal ---
+
+  - platform: wifi_signal
+    name: "WiFi Signal"
+    update_interval: 60s
+
+# =============================================================================
+# TEXT SENSORS (status information)
+# =============================================================================
+
+text_sensor:
+  - platform: modbus_controller
+    modbus_controller_id: riden
+    name: "Output Mode"
+    register_type: holding
+    address: 17
+    raw_encode: NONE
+    icon: mdi:sine-wave
+    lambda: |-
+      uint16_t val = modbus_controller::word_from_hex_str(x, 0);
+      if (val == 0) return std::string("CV");
+      if (val == 1) return std::string("CC");
+      return std::string("Unknown");
+
+  - platform: modbus_controller
+    modbus_controller_id: riden
+    name: "Protection Status"
+    register_type: holding
+    address: 16
+    raw_encode: NONE
+    icon: mdi:shield-alert
+    lambda: |-
+      uint16_t val = modbus_controller::word_from_hex_str(x, 0);
+      if (val == 1) return std::string("OVP");
+      if (val == 2) return std::string("OCP");
+      return std::string("OK");
+
+  - platform: wifi_info
+    ip_address:
+      name: "IP Address"
+    mac_address:
+      name: "MAC Address"
+
+# =============================================================================
+# BINARY SENSORS
+# =============================================================================
+
+binary_sensor:
+  - platform: modbus_controller
+    modbus_controller_id: riden
+    name: "Battery Mode"
+    register_type: holding
+    address: 32
+    icon: mdi:car-battery
+    lambda: |-
+      return x != 0;
+
+  - platform: modbus_controller
+    modbus_controller_id: riden
+    name: "Keypad Locked"
+    register_type: holding
+    address: 15
+    icon: mdi:lock
+    entity_category: diagnostic
+    lambda: |-
+      return x != 0;
+
+  - platform: status
+    name: "Status"
+
+# =============================================================================
+# SWITCHES (on/off controls)
+# =============================================================================
+
+switch:
+  - platform: modbus_controller
+    modbus_controller_id: riden
+    name: "Output"
+    register_type: holding
+    address: 18
+    icon: mdi:power
+    bitmask: 1
+
+  - platform: modbus_controller
+    modbus_controller_id: riden
+    name: "Buzzer"
+    register_type: holding
+    address: 69
+    icon: mdi:volume-high
+    entity_category: config
+    bitmask: 1
+
+  - platform: modbus_controller
+    modbus_controller_id: riden
+    name: "Logo"
+    register_type: holding
+    address: 70
+    icon: mdi:monitor
+    entity_category: config
+    bitmask: 1
+
+  - platform: modbus_controller
+    modbus_controller_id: riden
+    name: "Power On Boot"
+    register_type: holding
+    address: 68
+    icon: mdi:power-plug
+    entity_category: config
+    bitmask: 1
+
+# =============================================================================
+# NUMBER ENTITIES (adjustable setpoints)
+# =============================================================================
+
+number:
+  - platform: modbus_controller
+    modbus_controller_id: riden
+    name: "Voltage Set"
+    register_type: holding
+    address: 8
+    value_type: U_WORD
+    unit_of_measurement: "V"
+    icon: mdi:flash
+    min_value: 0
+    max_value: ${v_max}
+    step: 0.01
+    multiply: ${v_multi}
+
+  - platform: modbus_controller
+    modbus_controller_id: riden
+    name: "Current Set"
+    register_type: holding
+    address: 9
+    value_type: U_WORD
+    unit_of_measurement: "A"
+    icon: mdi:current-dc
+    min_value: 0
+    max_value: ${i_max}
+    step: 0.01
+    multiply: ${i_multi}
+
+  - platform: modbus_controller
+    modbus_controller_id: riden
+    name: "OVP (Over-Voltage Protection)"
+    register_type: holding
+    address: 82
+    value_type: U_WORD
+    unit_of_measurement: "V"
+    icon: mdi:flash-alert
+    min_value: 0
+    max_value: ${v_max}
+    step: 0.01
+    multiply: ${v_multi}
+
+  - platform: modbus_controller
+    modbus_controller_id: riden
+    name: "OCP (Over-Current Protection)"
+    register_type: holding
+    address: 83
+    value_type: U_WORD
+    unit_of_measurement: "A"
+    icon: mdi:current-ac
+    min_value: 0
+    max_value: ${i_max}
+    step: 0.01
+    multiply: ${i_multi}
+
+  - platform: modbus_controller
+    modbus_controller_id: riden
+    name: "Brightness"
+    register_type: holding
+    address: 72
+    value_type: U_WORD
+    icon: mdi:brightness-6
+    entity_category: config
+    min_value: 0
+    max_value: 5
+    step: 1
+
+# =============================================================================
+# SELECT ENTITIES (dropdowns)
+# =============================================================================
+
+select:
+  - platform: modbus_controller
+    modbus_controller_id: riden
+    name: "Language"
+    address: 71
+    icon: mdi:translate
+    entity_category: config
+    optionsmap:
+      "English": 0
+      "Chinese": 1
+      "German": 2
+      "French": 3
+      "Russian": 4
+
+  - platform: modbus_controller
+    modbus_controller_id: riden
+    name: "Preset"
+    address: 19
+    icon: mdi:bookmark
+    entity_category: config
+    use_write_multiple: true
+    optionsmap:
+      "M1": 1
+      "M2": 2
+      "M3": 3
+      "M4": 4
+      "M5": 5
+      "M6": 6
+      "M7": 7
+      "M8": 8
+      "M9": 9
+
+# =============================================================================
+# BUTTONS
+# =============================================================================
+
+button:
+  - platform: restart
+    name: "Restart ESP"
+    entity_category: diagnostic
