@@ -31,7 +31,8 @@ flowchart TD
     MPPT -->|DC laden| Batterie[(Batterie)]
     PCC -->|IR-Lesekopf| ESP8266[ESP8266\nelectric_meter_ir]
     ESP8266 -->|Wirkleistung| HA[Home Assistant]
-    HA -->|Modbus/TCP| RD6030W
+  RD6030W -->|Modbus RTU| ESP8266_RIDEN[ESP8266\nriden-psu]
+  ESP8266_RIDEN -->|ESPHome API| HA
     MPPT -->|VE.Direct| ESP32[ESP32\nsoyosource-victron]
     ESP32 -->|Telemetrie| HA
 ```
@@ -55,6 +56,7 @@ Der Victron wird vom ESP32 nur per VE.Direct mitgelesen (Telemetrie), nicht akti
 | Datei | Hardware | Zweck |
 | --- | --- | --- |
 | [esphome/electric_meter_ir.yaml](esphome/electric_meter_ir.yaml) | ESP8266 (D1 mini) + Hichi IR-Lesekopf | SML-Zähler über UART auslesen, OBIS-Werte als HA-Sensoren |
+| [esphome/riden-psu.yaml](esphome/riden-psu.yaml) | ESP8266 (Riden WiFi-Dongle / ESP-12F) + Modbus RTU | RD60xx-Netzteil per Modbus auslesen und steuern, Entitäten per ESPHome API nach HA bringen |
 | [esphome/soyosource-victron-esp32.yaml](esphome/soyosource-victron-esp32.yaml) | ESP32 + MAX485 + VE.Direct | Soyosource GTN Limiter (RS485) und Victron MPPT (VE.Direct) auf einem Gerät |
 
 Genutzte externe Komponenten:
@@ -72,6 +74,7 @@ und ausfüllen (WLAN, OTA, API-Key).
 ```sh
 cd esphome
 esphome run electric_meter_ir.yaml
+esphome run riden-psu.yaml
 esphome run soyosource-victron-esp32.yaml
 ```
 
@@ -79,14 +82,15 @@ esphome run soyosource-victron-esp32.yaml
 
 | Datei | Zweck |
 | --- | --- |
-| [homeassistant/packages/rd6030_device.yaml](homeassistant/packages/rd6030_device.yaml) | RD6030W Modbus/TCP-Entities |
-| [homeassistant/packages/rd6030_battery_surplus_charge.yaml](homeassistant/packages/rd6030_battery_surplus_charge.yaml) | Überschussladung der Batterie über den RD6030W |
+| [homeassistant/packages/rd6030_battery_surplus_charge.yaml](homeassistant/packages/rd6030_battery_surplus_charge.yaml) | Überschussladung der Batterie über den per ESPHome eingebundenen RD6030W |
 | [homeassistant/packages/soyosource_feed_in_control.yaml](homeassistant/packages/soyosource_feed_in_control.yaml) | Einspeiseregelung für den Soyosource im Handbetrieb |
 
-### WLAN-Dongle des RD6030W
+### Riden-Dongle / ESPHome
 
-Der Modbus/TCP-Zugriff setzt voraus, dass der interne WLAN-Dongle mit einer alternativen
-Firmware betrieben wird. Die originale Riden-Firmware unterstützt kein Modbus TCP.
+Der RD6030W wird hier nicht mehr direkt aus Home Assistant per Modbus/TCP oder HTTP
+angesprochen. Stattdessen läuft auf dem internen WLAN-Dongle eine ESPHome-Firmware,
+die per Modbus RTU mit dem Netzteil spricht und die Entitäten über die ESPHome-API
+in Home Assistant bereitstellt.
 
 Empfohlen: **[morgendagen/riden-dongle](https://github.com/morgendagen/riden-dongle)** –
 PlatformIO-Firmware (ESP8266/ESP-12F), die Modbus TCP, SCPI und ein Web-Interface bereitstellt.
@@ -105,9 +109,9 @@ homeassistant:
 ```
 
 Dann den Package-Ordner mit dem Inhalt aus [homeassistant/packages/](homeassistant/packages/)
-befüllen und `homeassistant/secrets.yaml` aus
-[homeassistant/secrets.yaml.example](homeassistant/secrets.yaml.example) anlegen
-(`rd6030w_host` u. ä.).
+befüllen. Für die aktuell versionierten Packages ist kein eigenes
+`homeassistant/secrets.yaml` mehr erforderlich; die Zugangsdaten liegen in
+`esphome/secrets.yaml` für die jeweiligen ESPHome-Geräte.
 
 ## Sicherheitshinweise
 

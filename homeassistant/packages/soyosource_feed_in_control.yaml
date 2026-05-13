@@ -363,9 +363,9 @@ automation:
           max_power_w: >
             {{ states('number.soyosource_victron_esp32_max_power_demand') | float(900) }}
           rd6030_current_a: >
-            {{ states('number.rd6030_charge_current') | float(0) }}
+            {{ states('number.riden_psu_current_set') | float(0) }}
           rd6030_output_enabled: >
-            {{ is_state('switch.rd6030_output_enable', 'on') }}
+            {{ is_state('switch.riden_psu_output', 'on') }}
           rd6030_active: >
             {{ rd6030_output_enabled or (rd6030_current_a | float(0) > 0) }}
 

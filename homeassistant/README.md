@@ -50,6 +50,12 @@ Kurz gesagt:
 - der RD6030 aendert seinen Strom nur schrittweise, um ruhiger zu regeln
 - bei veralteten Messwerten oder zu hoher Spannung wird sicher abgeschaltet
 
+Voraussetzungen:
+
+- die ESPHome-Integration fuer [../esphome/riden-psu.yaml](../esphome/riden-psu.yaml) ist in Home Assistant eingebunden
+- die Entitaeten `number.riden_psu_voltage_set`, `number.riden_psu_current_set`, `switch.riden_psu_output` und `sensor.riden_psu_voltage_output` sind verfuegbar
+- [packages/soyosource_feed_in_control.yaml](packages/soyosource_feed_in_control.yaml) ist optional, wird aber fuer die gegenseitige Verriegelung mit dem Soyosource ausgewertet
+
 Beispiel:
 
 - [packages/soyosource_feed_in_control.yaml](packages/soyosource_feed_in_control.yaml)
