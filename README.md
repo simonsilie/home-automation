@@ -31,8 +31,8 @@ flowchart TD
     MPPT -->|DC laden| Batterie[(Batterie)]
     PCC -->|IR-Lesekopf| ESP8266[ESP8266\nelectric_meter_ir]
     ESP8266 -->|Wirkleistung| HA[Home Assistant]
-  RD6030W -->|Modbus RTU| ESP8266_RIDEN[ESP8266\nriden-psu]
-  ESP8266_RIDEN -->|ESPHome API| HA
+    RD6030W -->|Modbus RTU| ESP8266_RIDEN[ESP8266\nriden-psu]
+    ESP8266_RIDEN -->|ESPHome API| HA
     MPPT -->|VE.Direct| ESP32[ESP32\nsoyosource-victron]
     ESP32 -->|Telemetrie| HA
 ```
@@ -91,6 +91,9 @@ Der RD6030W wird hier nicht mehr direkt aus Home Assistant per Modbus/TCP oder H
 angesprochen. Stattdessen läuft auf dem internen WLAN-Dongle eine ESPHome-Firmware,
 die per Modbus RTU mit dem Netzteil spricht und die Entitäten über die ESPHome-API
 in Home Assistant bereitstellt.
+
+Die Konfiguration in [esphome/riden-psu.yaml](esphome/riden-psu.yaml) basiert auf
+**[morgendagen/riden-dongle](https://github.com/morgendagen/riden-dongle)**.
 
 Empfohlen: **[morgendagen/riden-dongle](https://github.com/morgendagen/riden-dongle)** –
 PlatformIO-Firmware (ESP8266/ESP-12F), die Modbus TCP, SCPI und ein Web-Interface bereitstellt.
