@@ -337,4 +337,3 @@ automation:
             target:
               entity_id: switch.riden_psu_output
             continue_on_error: true
-

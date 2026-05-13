@@ -2,6 +2,7 @@
 #
 # This communicates with Riden power supplies via Modbus RTU over UART.
 # Hardware: ESP8266 (ESP-12F) module inside the Riden WiFi dongle.
+# Based on: https://github.com/morgendagen/riden-dongle
 #
 # Supported models: RD6006, RD6006P, RD6012, RD6012P, RD6018, RD6024, RD6030
 #
@@ -58,6 +59,7 @@ logger:
 wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
+  min_auth_mode: WPA2
   ap:
     ssid: "${device_name}"
 
@@ -463,6 +465,7 @@ select:
     entity_category: config
     use_write_multiple: true
     optionsmap:
+      "M0": 0
       "M1": 1
       "M2": 2
       "M3": 3
