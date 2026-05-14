@@ -183,6 +183,7 @@ template:
           {% set deadband = (states('input_number.soyosource_feed_in_deadband') | float(0)) / 2 %}
           {% set at_max = is_state('binary_sensor.soyosource_regler_am_maximum', 'on') %}
           {% set at_min = is_state('binary_sensor.soyosource_regler_am_minimum', 'on') %}
+          {% set rd6030_active = is_state('switch.riden_psu_output', 'on') or states('number.riden_psu_current_set') | float(0) > 0 %}
           {% if not enabled %}
             deaktiviert
           {% elif not fresh %}
@@ -191,6 +192,8 @@ template:
             Handbetrieb wird aktiviert
           {% elif battery_low %}
             Batterie niedrig
+          {% elif rd6030_active %}
+            RD6030 aktiv
           {% elif at_max %}
             am Maximum begrenzt
           {% elif at_min %}
