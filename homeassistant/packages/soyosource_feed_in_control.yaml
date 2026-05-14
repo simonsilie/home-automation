@@ -178,6 +178,7 @@ template:
           {% set enabled = is_state('input_boolean.soyosource_feed_in_control_enabled', 'on') %}
           {% set fresh = is_state('binary_sensor.soyosource_messwert_frisch', 'on') %}
           {% set manual = is_state('switch.soyosource_victron_esp32_limiter_manual_mode', 'on') %}
+          {% set battery_low = is_state('binary_sensor.soyosource_batterie_niedrig', 'on') %}
           {% set error = states('sensor.soyosource_regeldifferenz') | float(0) %}
           {% set deadband = (states('input_number.soyosource_feed_in_deadband') | float(0)) / 2 %}
           {% set at_max = is_state('binary_sensor.soyosource_regler_am_maximum', 'on') %}
@@ -188,6 +189,8 @@ template:
             Messwert veraltet
           {% elif not manual %}
             Handbetrieb wird aktiviert
+          {% elif battery_low %}
+            Batterie niedrig
           {% elif at_max %}
             am Maximum begrenzt
           {% elif at_min %}
