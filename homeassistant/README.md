@@ -18,7 +18,7 @@ Das folgende Diagramm beschreibt die Funktion von
 
 ```mermaid
 flowchart TD
-  A[IR-Stromzaehler: Wirkleistung] --> B[Mittelwert ueber 15 s]
+  A[IR-Stromzaehler: Wirkleistung] --> B[Mittelwert ueber 10 s]
   V[Victron MPPT: Panelleistung] --> C
   B --> C[Ueberschuss = minus Netzleistung-Mittelwert + 5 W minus Panelleistung]
   C --> D{Regler aktiviert?}
