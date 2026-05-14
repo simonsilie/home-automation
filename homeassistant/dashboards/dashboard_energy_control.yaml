@@ -136,28 +136,14 @@ views:
         show_header_toggle: false
         state_color: true
         entities:
-          - entity: input_boolean.rd6030_battery_surplus_charge_enabled
+          - entity: input_boolean.rd6030_surplus_charge_enabled
             name: RD6030 Ueberschussladen aktiv
-          - entity: input_boolean.rd6030_battery_surplus_fail_safe_zero
-            name: Fail-safe auf 0 A
           - entity: switch.riden_psu_output
             name: RD6030 Ausgang
           - entity: number.riden_psu_voltage_set
-            name: RD6030 Ladespannung aktiv
+            name: RD6030 Ladespannung
           - entity: number.riden_psu_current_set
             name: RD6030 Ladestrom
-          - entity: input_number.rd6030_battery_charge_voltage_v
-            name: Soll-Ladespannung
-          - entity: input_number.rd6030_battery_max_charge_current_a
-            name: Maximaler Ladestrom
-          - entity: input_number.rd6030_battery_current_step_a
-            name: Stromschritt
-          - entity: input_number.rd6030_battery_surplus_deadband_w
-            name: Totband gesamt
-          - entity: input_number.rd6030_battery_min_output_voltage_v
-            name: Min. Spannung fuer Berechnung
-          - entity: input_number.rd6030_battery_stale_timeout_s
-            name: Messwert-Timeout
 
       - type: entities
         title: RD6030 Ueberschussladen Diagnose
@@ -166,21 +152,15 @@ views:
         entities:
           - entity: sensor.rd6030_reglerstatus
             name: RD6030 Status
-          - entity: sensor.rd6030_ueberschuss_mittelwert
-            name: Ueberschuss Mittelwert
           - entity: sensor.rd6030_netzleistung_mittelwert
             name: Netzleistung Mittelwert
-          - entity: sensor.rd6030_naechster_zielstrom
-            name: Naechster Zielstrom
+          - entity: sensor.rd6030_ueberschussleistung
+            name: Ueberschussleistung
+          - entity: sensor.rd6030_zielstrom
+            name: Zielstrom
           - entity: sensor.riden_psu_voltage_output
             name: Ausgangsspannung
           - entity: sensor.riden_psu_current_output
             name: Ausgangsstrom
-          - entity: binary_sensor.rd6030_messwert_frisch
-            name: Messwert frisch
-          - entity: binary_sensor.rd6030_im_totband
-            name: Im Totband
-          - entity: binary_sensor.rd6030_am_stromlimit
-            name: Am Stromlimit
-          - entity: binary_sensor.rd6030_spannung_zu_hoch
-            name: Spannung zu hoch
+          - entity: sensor.riden_psu_power_output
+            name: Ausgangsleistung
