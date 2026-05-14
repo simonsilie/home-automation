@@ -1,0 +1,22 @@
+- platform: generic_thermostat
+  name: IR-Heizung Bad oben
+  min_cycle_duration:
+    minutes: 5
+  hot_tolerance: 0.5
+  precision: 0.1
+  ac_mode: false
+  cold_tolerance: 0.5
+  unique_id: bad_oben_heizung
+  heater: switch.bad_oben_raumheizer_tasmota
+  target_sensor: sensor.0xe406bffffeda0632_temperature
+- platform: generic_thermostat
+  name: IR-Heizung Kinderzimmer 2
+  min_cycle_duration:
+    minutes: 5
+  hot_tolerance: 0.5
+  precision: 0.1
+  ac_mode: false
+  cold_tolerance: 0.5
+  unique_id: kz2_heizung
+  heater: switch.0xa4c13826cbeb579d
+  target_sensor: sensor.0xe406bffffedb6d41_temperature
