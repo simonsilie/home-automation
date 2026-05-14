@@ -1,0 +1,29 @@
+# Loads default set of integrations. Do not remove.
+default_config:
+
+# Load frontend themes from the themes folder
+frontend:
+  themes: !include_dir_merge_named themes
+
+automation: !include automations.yaml
+script: !include scripts.yaml
+scene: !include scenes.yaml
+
+homeassistant:
+  packages:
+    rd6030_battery_surplus_charge: !include packages/rd6030_battery_surplus_charge.yaml
+    soyosource_feed_in_control: !include packages/soyosource_feed_in_control.yaml
+    waste_collection: !include packages/waste_collection.yaml
+
+lovelace:
+  dashboards:
+    energie-steuerung:
+      mode: yaml
+      title: Energie Steuerung
+      icon: mdi:transmission-tower
+      show_in_sidebar: true
+      filename: dashboards/dashboard_energy_control.yaml
+
+influxdb: !include influxdb.yaml
+
+climate: !include climate.yaml
