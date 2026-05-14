@@ -103,7 +103,7 @@ sensor:
     entity_id: sensor.electric_meter_ir_active_power
     state_characteristic: mean
     max_age:
-      seconds: 15
+      seconds: 10
     sampling_size: 20
 
 template:
