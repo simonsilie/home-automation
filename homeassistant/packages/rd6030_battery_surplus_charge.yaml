@@ -27,7 +27,7 @@ sensor:
     state_characteristic: mean
     sampling_size: 20
     max_age:
-      seconds: 15
+      seconds: 10
 
 # ── Calculated template sensors ────────────────────────────────────────
 template:
@@ -71,7 +71,7 @@ automation:
     mode: restart
     trigger:
       - platform: time_pattern
-        seconds: "/15"
+        seconds: "/10"
       - platform: state
         entity_id: input_boolean.rd6030_surplus_charge_enabled
       - platform: state
