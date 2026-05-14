@@ -192,7 +192,6 @@ automation:
     trigger:
       - platform: state
         entity_id:
-          - sensor.rd6030_netzleistung_mittelwert
           - input_boolean.rd6030_battery_surplus_charge_enabled
           - input_number.rd6030_battery_surplus_deadband_w
           - input_number.rd6030_battery_max_charge_current_a
@@ -222,16 +221,25 @@ automation:
                 entity_id: input_boolean.rd6030_battery_surplus_charge_enabled
                 state: "off"
             sequence:
-              - action: number.set_value
-                target:
-                  entity_id: number.riden_psu_current_set
-                data:
-                  value: 0
-                continue_on_error: true
-              - action: switch.turn_off
-                target:
-                  entity_id: switch.riden_psu_output
-                continue_on_error: true
+              - if:
+                  - condition: template
+                    value_template: "{{ states('number.riden_psu_current_set') | float(0) != 0 }}"
+                then:
+                  - action: number.set_value
+                    target:
+                      entity_id: number.riden_psu_current_set
+                    data:
+                      value: 0
+                    continue_on_error: true
+              - if:
+                  - condition: state
+                    entity_id: switch.riden_psu_output
+                    state: "on"
+                then:
+                  - action: switch.turn_off
+                    target:
+                      entity_id: switch.riden_psu_output
+                    continue_on_error: true
               - stop: Regler ist deaktiviert.
 
           - conditions:
@@ -245,16 +253,25 @@ automation:
                         entity_id: input_boolean.rd6030_battery_surplus_fail_safe_zero
                         state: "on"
                     sequence:
-                      - action: number.set_value
-                        target:
-                          entity_id: number.riden_psu_current_set
-                        data:
-                          value: 0
-                        continue_on_error: true
-                      - action: switch.turn_off
-                        target:
-                          entity_id: switch.riden_psu_output
-                        continue_on_error: true
+                      - if:
+                          - condition: template
+                            value_template: "{{ states('number.riden_psu_current_set') | float(0) != 0 }}"
+                        then:
+                          - action: number.set_value
+                            target:
+                              entity_id: number.riden_psu_current_set
+                            data:
+                              value: 0
+                            continue_on_error: true
+                      - if:
+                          - condition: state
+                            entity_id: switch.riden_psu_output
+                            state: "on"
+                        then:
+                          - action: switch.turn_off
+                            target:
+                              entity_id: switch.riden_psu_output
+                            continue_on_error: true
               - stop: Messwert ist veraltet oder nicht verfuegbar.
 
       - condition: template
@@ -282,16 +299,25 @@ automation:
               - condition: template
                 value_template: "{{ v_meas | float(0) > fixed_v | float(60) }}"
             sequence:
-              - service: number.set_value
-                target:
-                  entity_id: number.riden_psu_current_set
-                data:
-                  value: 0
-                continue_on_error: true
-              - service: switch.turn_off
-                target:
-                  entity_id: switch.riden_psu_output
-                continue_on_error: true
+              - if:
+                  - condition: template
+                    value_template: "{{ states('number.riden_psu_current_set') | float(0) != 0 }}"
+                then:
+                  - service: number.set_value
+                    target:
+                      entity_id: number.riden_psu_current_set
+                    data:
+                      value: 0
+                    continue_on_error: true
+              - if:
+                  - condition: state
+                    entity_id: switch.riden_psu_output
+                    state: "on"
+                then:
+                  - service: switch.turn_off
+                    target:
+                      entity_id: switch.riden_psu_output
+                    continue_on_error: true
               - stop: Ausgangsspannung liegt ueber der Sollspannung.
 
       - variables:
@@ -328,12 +354,22 @@ automation:
           - condition: template
             value_template: "{{ next_current | float(0) > 0 }}"
         then:
-          - service: switch.turn_on
-            target:
-              entity_id: switch.riden_psu_output
-            continue_on_error: true
+          - if:
+              - condition: state
+                entity_id: switch.riden_psu_output
+                state: "off"
+            then:
+              - service: switch.turn_on
+                target:
+                  entity_id: switch.riden_psu_output
+                continue_on_error: true
         else:
-          - service: switch.turn_off
-            target:
-              entity_id: switch.riden_psu_output
-            continue_on_error: true
+          - if:
+              - condition: state
+                entity_id: switch.riden_psu_output
+                state: "on"
+            then:
+              - service: switch.turn_off
+                target:
+                  entity_id: switch.riden_psu_output
+                continue_on_error: true
