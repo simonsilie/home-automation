@@ -95,7 +95,7 @@ modbus_controller:
     address: 1
     modbus_id: modbus_riden
     setup_priority: -10
-    update_interval: 2s
+    update_interval: 5s
     command_throttle: 50ms
 
 # =============================================================================
