@@ -10,7 +10,7 @@
 # target_current = target_power / 60      [A]  (constant 60 V)
 #
 # The controller is only active when the Soyosource inverter is idle
-# (limiter_power_demand == 0).
+# (sensor.soyosource_aktive_sollleistung == 0).
 
 # ── Enable / Disable toggle ────────────────────────────────────────────
 input_boolean:
