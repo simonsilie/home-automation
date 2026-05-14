@@ -11,6 +11,9 @@
 #
 # The controller is only active when the Soyosource inverter is idle
 # (sensor.soyosource_aktive_sollleistung == 0).
+#
+# Note: No battery overvoltage guard is needed here because the
+# Victron MPPT charge controller handles charge termination in hardware.
 
 # ── Enable / Disable toggle ────────────────────────────────────────────
 input_boolean:

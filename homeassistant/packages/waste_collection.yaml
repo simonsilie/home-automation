@@ -8,6 +8,6 @@ waste_collection_schedule:
   sources:
     - name: ics
       args:
-        url: https://www.zfa-iserlohn.de/kalender_ecf613e6cce17fb1d27ecd54e768f1f4.ics
+        url: !secret waste_ics_url
   sensors:
     - name: muell
