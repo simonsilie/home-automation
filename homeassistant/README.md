@@ -6,10 +6,11 @@ Damit Home Assistant sie lädt, muss in der aktiven `configuration.yaml` stehen:
 
 ```yaml
 homeassistant:
-  packages: !include_dir_named packages/
+  packages:
+    my_package: !include packages/my_package.yaml
 ```
 
-Danach die gewünschte Datei nach `packages/` legen und Home Assistant neu laden oder neu starten.
+Danach die gewünschte Datei nach `packages/` legen, den Eintrag in `configuration.yaml` ergänzen und Home Assistant neu laden oder neu starten.
 
 ## Ablauf Ueberschussladen
 
