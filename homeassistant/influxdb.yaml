@@ -1,0 +1,20 @@
+tags:
+  source: HA
+tags_attributes:
+  - friendly_name
+default_measurement: state
+exclude:
+  entities:
+    - zone.home
+  domains:
+    - persistent_notification
+    - person
+include:
+  domains:
+    - sensor
+    - binary_sensor
+    - sun
+    - light
+    - cover
+  entities:
+    - weather.home
