@@ -113,18 +113,29 @@ automation:
           - stop: "Soyosource is feeding in"
 
       # ── Set voltage (always 60 V) ──
-      - service: number.set_value
-        target:
-          entity_id: number.riden_psu_voltage_set
-        data:
-          value: 60
+      - if:
+          - condition: template
+            value_template: "{{ states('number.riden_psu_voltage_set') | float(0) != 60 }}"
+        then:
+          - service: number.set_value
+            target:
+              entity_id: number.riden_psu_voltage_set
+            data:
+              value: 60
 
       # ── Set current from calculated target ──
-      - service: number.set_value
-        target:
-          entity_id: number.riden_psu_current_set
-        data:
-          value: "{{ states('sensor.rd6030_zielstrom') | float(0) }}"
+      - variables:
+          target_current: "{{ states('sensor.rd6030_zielstrom') | float(0) }}"
+          current_current: "{{ states('number.riden_psu_current_set') | float(0) }}"
+      - if:
+          - condition: template
+            value_template: "{{ target_current | float != current_current | float }}"
+        then:
+          - service: number.set_value
+            target:
+              entity_id: number.riden_psu_current_set
+            data:
+              value: "{{ target_current }}"
 
       # ── Enable / disable PSU output ──
       - if:
@@ -132,10 +143,20 @@ automation:
             entity_id: sensor.rd6030_zielstrom
             above: 0
         then:
-          - service: switch.turn_on
-            target:
-              entity_id: switch.riden_psu_output
+          - if:
+              - condition: state
+                entity_id: switch.riden_psu_output
+                state: "off"
+            then:
+              - service: switch.turn_on
+                target:
+                  entity_id: switch.riden_psu_output
         else:
-          - service: switch.turn_off
-            target:
-              entity_id: switch.riden_psu_output
+          - if:
+              - condition: state
+                entity_id: switch.riden_psu_output
+                state: "on"
+            then:
+              - service: switch.turn_off
+                target:
+                  entity_id: switch.riden_psu_output
