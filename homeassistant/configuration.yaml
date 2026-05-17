@@ -10,10 +10,7 @@ script: !include scripts.yaml
 scene: !include scenes.yaml
 
 homeassistant:
-  packages:
-    rd6030_battery_surplus_charge: !include packages/rd6030_battery_surplus_charge.yaml
-    soyosource_feed_in_control: !include packages/soyosource_feed_in_control.yaml
-    waste_collection: !include packages/waste_collection.yaml
+  packages: !include_dir_named packages
 
 lovelace:
   dashboards:
