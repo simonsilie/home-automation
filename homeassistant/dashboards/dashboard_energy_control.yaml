@@ -98,7 +98,7 @@ views:
         entities:
           - entity: sensor.soyosource_netzleistung_direkt
             name: Netzleistung direkt
-          - entity: sensor.soyosource_netzleistung_mittelwert
+          - entity: sensor.grid_power_average
             name: Netzleistung Mittelwert
           - entity: sensor.soyosource_regeldifferenz
             name: Regeldifferenz
@@ -152,7 +152,7 @@ views:
         entities:
           - entity: sensor.rd6030_reglerstatus
             name: RD6030 Status
-          - entity: sensor.rd6030_netzleistung_mittelwert
+          - entity: sensor.grid_power_average
             name: Netzleistung Mittelwert
           - entity: sensor.rd6030_ueberschussleistung
             name: Ueberschussleistung

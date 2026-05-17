@@ -21,17 +21,6 @@ input_boolean:
     name: "RD6030 Ueberschussladen aktiv"
     icon: mdi:battery-charging
 
-# ── Averaged grid power (statistics platform) ──────────────────────────
-sensor:
-  - platform: statistics
-    name: "RD6030 Netzleistung Mittelwert"
-    unique_id: rd6030_netzleistung_mittelwert
-    entity_id: sensor.electric_meter_ir_active_power
-    state_characteristic: mean
-    sampling_size: 20
-    max_age:
-      seconds: 10
-
 # ── Calculated template sensors ────────────────────────────────────────
 template:
   - sensor:
@@ -41,7 +30,7 @@ template:
         device_class: power
         state_class: measurement
         state: >
-          {% set grid_avg = states('sensor.rd6030_netzleistung_mittelwert') | float(0) %}
+          {% set grid_avg = states('sensor.grid_power_average') | float(0) %}
           {% set mppt = states('sensor.soyosource_victron_esp32_mppt_panel_power') | float(0) %}
           {% set surplus = -(grid_avg + 5 - mppt) %}
           {{ [[surplus, 0] | max, 540] | min | round(0) }}

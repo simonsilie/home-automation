@@ -96,16 +96,6 @@ input_number:
     mode: box
     initial: 24
 
-sensor:
-  - platform: statistics
-    name: Soyosource Netzleistung Mittelwert
-    unique_id: soyosource_netzleistung_mittelwert
-    entity_id: sensor.electric_meter_ir_active_power
-    state_characteristic: mean
-    max_age:
-      seconds: 10
-    sampling_size: 20
-
 template:
   - sensor:
       - name: Soyosource Netzleistung Direkt
@@ -135,7 +125,7 @@ template:
         unit_of_measurement: W
         state_class: measurement
         state: >
-          {% set averaged = states('sensor.soyosource_netzleistung_mittelwert') %}
+          {% set averaged = states('sensor.grid_power_average') %}
           {% set actual = averaged | float(0)
              if averaged not in ['unknown', 'unavailable', 'none']
            else states('sensor.soyosource_netzleistung_direkt') | float(0) %}
@@ -279,7 +269,7 @@ automation:
     trigger:
       - platform: state
         entity_id:
-          - sensor.soyosource_netzleistung_mittelwert
+          - sensor.grid_power_average
           - sensor.soyosource_victron_esp32_mppt_battery_voltage
           - input_number.soyosource_feed_in_target_power
           - input_number.soyosource_feed_in_deadband
@@ -345,7 +335,7 @@ automation:
           current_setpoint: >
             {{ states('number.soyosource_victron_esp32_manual_power_demand') | float(0) }}
           error_w: >
-            {% set averaged = states('sensor.soyosource_netzleistung_mittelwert') %}
+            {% set averaged = states('sensor.grid_power_average') %}
             {% set actual = averaged | float(0)
                if averaged not in ['unknown', 'unavailable', 'none']
                else states('sensor.soyosource_netzleistung_direkt') | float(0) %}

@@ -1,0 +1,14 @@
+# Home Assistant package: shared energy meter sensors.
+#
+# Sensors derived from the grid meter that are used by multiple controllers
+# (Soyosource feed-in control, RD6030 surplus charging, etc.).
+
+sensor:
+  - platform: statistics
+    name: "Grid Power Average"
+    unique_id: grid_power_average
+    entity_id: sensor.electric_meter_ir_active_power
+    state_characteristic: mean
+    sampling_size: 20
+    max_age:
+      seconds: 10
