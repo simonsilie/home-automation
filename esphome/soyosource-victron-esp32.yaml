@@ -37,6 +37,7 @@ substitutions:
   pin_rs485_tx: GPIO17
   pin_rs485_rx: GPIO16
   pin_ve_rx: GPIO4
+  pin_shunt_rx: GPIO5
   # Leistung am Hausanschluss (W), negativ = Einspeisung — für soyosource_virtual_meter
   # Standard: IR-Zähler-Gerät (electric_meter_ir.yaml, device_name electric-meter-ir) → sensor.electric_meter_ir_active_power
   homeassistant_power_entity: sensor.electric_meter_ir_active_power
@@ -102,6 +103,11 @@ uart:
     # VE.Direct wird hier nur passiv mitgelesen: nur Victron-TX -> ESP-RX.
     rx_pin: ${pin_ve_rx}
     rx_buffer_size: 256
+  - id: uart_smartshunt
+    baud_rate: 19200
+    # VE.Direct SmartShunt: nur Victron-TX -> ESP-RX.
+    rx_pin: ${pin_shunt_rx}
+    rx_buffer_size: 256
 
 soyosource_modbus:
   - id: modbus_soyo
@@ -129,6 +135,9 @@ soyosource_virtual_meter:
 victron:
   - id: victron_mppt
     uart_id: uart_victron
+    throttle: 5s
+  - id: victron_smartshunt
+    uart_id: uart_smartshunt
     throttle: 5s
 
 binary_sensor:
@@ -186,6 +195,31 @@ sensor:
       name: MPPT Yield Today
     yield_total:
       name: MPPT Yield Total
+
+  - platform: victron
+    victron_id: victron_smartshunt
+    battery_voltage:
+      name: Shunt Battery Voltage
+    battery_current:
+      name: Shunt Battery Current
+    instantaneous_power:
+      name: Shunt Battery Power
+    state_of_charge:
+      name: Shunt State of Charge
+    consumed_amp_hours:
+      name: Shunt Consumed Amp Hours
+    time_to_go:
+      name: Shunt Time to Go
+    auxiliary_battery_voltage:
+      name: Shunt Starter Battery Voltage
+    min_battery_voltage:
+      name: Shunt Min Battery Voltage
+    max_battery_voltage:
+      name: Shunt Max Battery Voltage
+    amount_of_discharged_energy:
+      name: Shunt Discharged Energy
+    amount_of_charged_energy:
+      name: Shunt Charged Energy
 
   # Estimated Soyosource energy from power_demand (no physical meter)
   - platform: total_daily_energy
