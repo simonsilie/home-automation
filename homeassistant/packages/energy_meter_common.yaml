@@ -1,7 +1,6 @@
 # Home Assistant package: shared energy meter sensors.
 #
 # Sensors derived from the grid meter that are used by multiple controllers
-# (Soyosource feed-in control, RD6030 surplus charging, etc.).
 
 sensor:
   - platform: statistics
