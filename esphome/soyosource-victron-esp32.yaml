@@ -1,4 +1,4 @@
-# ESPHome: Ein ESP32 → RS485 (Soyosource GTN Limiter) + VE.Direct (Victron MPPT)
+# ESPHome: Ein ESP32 → RS485 (Soyosource GTN Limiter) + VE.Direct (Victron MPPT + SmartShunt)
 #
 # Quellen / Komponenten:
 #   - Soyosource: github.com/syssi/esphome-soyosource-gtn-virtual-meter (RS485 4800 baud)
@@ -14,19 +14,12 @@
 #   - DE/RE: Viele Breakout-Boards verbinden DE+RE; ohne automatische Flusssteuerung
 #     ggf. auf Senden legen (Board-Schaltung beachten). syssi optional: flow_control_pin
 #
-# --- Victron VE.Direct (JST-PH) ---
+# --- Victron VE.Direct (JST-PH) — zwei Geräte, je eigene UART ---
+#   MPPT (${pin_ve_rx}) und SmartShunt (${pin_shunt_rx}): gleiche Verdrahtung je Gerät:
 #   - GND ↔ GND
-#   - Victron TX → ESP RX (${pin_ve_rx}); Victron RX oft ungenutzt (nur Mitlesen)
+#   - Victron TX → ESP RX (jeweiliger Pin); Victron RX ungenutzt (nur Mitlesen)
 #   - Victron nicht über VE.Direct-5V den ESP versorgen (Strom zu gering)
 #   - TX-Pegel 3,3 V oder 5 V — bei 5 V Pegelanpassung / Teiler (Victron FAQ)
-#
-# --- Netztopologie (Limiter-Regelkreis) ---
-# Soyosource und RD6030W können beide am gleichen Haus-/Netzanschluss hängen:
-#   - WR speist AC ein → wirkt wie Erzeugung am PCC (reduziert Bezug / erhöht Einspeisung).
-#   - RD6030W zieht AC vom Netz → zusätzliche Last am PCC (erhöht Bezug / senkt Einspeisung).
-# Der virtuelle Zähler liest genau EINE HA-Leistungs-Entity; diese muss der gleiche Messpunkt
-# sein, an dem beide Effekte sichtbar sind (typisch Hauptzähler Wirkleistung). Dann „sieht“ der
-# Limiter auch RD6030-Last automatisch mit — gekoppelt über dieselbe Messeinrichtung wie HA/RD6030.
 #
 # Home Assistant: Entity für Hausbezugsleistung im Subst eintragen.
 
@@ -51,7 +44,7 @@ substitutions:
 esphome:
   name: ${device_name}
   friendly_name: ${friendly_name}
-  comment: Soyosource GTN Limiter über RS485 und Victron MPPT über VE.Direct auf einem ESP32.
+  comment: Soyosource GTN Limiter über RS485, Victron MPPT und SmartShunt über VE.Direct auf einem ESP32.
   min_version: 2024.6.0
   project:
     name: simon.soyosource-victron-esp32
