@@ -1,0 +1,57 @@
+# Home Assistant package: IR-Heizung Kinderzimmer 2 surplus control.
+#
+# Sets the IR heater in Kinderzimmer 2 to 21.5 °C (heat mode) when:
+#   - grid_power_average < -300 W  (exporting ≥ 300 W to the grid)
+#   - AND surplus battery charging is already at its 540 W ceiling
+#
+# Resets the target temperature to 7 °C (frost protection / effectively off)
+# when either condition is no longer met.
+
+automation:
+  - id: ir_kz2_surplus_einschalten
+    alias: "IR-Heizung Kinderzimmer 2 Surplus Einschalten"
+    mode: single
+    trigger:
+      - platform: state
+        entity_id: sensor.grid_power_average
+      - platform: state
+        entity_id: sensor.rd6030_ueberschussleistung
+      - platform: time_pattern
+        seconds: "/30"
+    condition:
+      - condition: numeric_state
+        entity_id: sensor.grid_power_average
+        below: -300
+      - condition: numeric_state
+        entity_id: sensor.rd6030_ueberschussleistung
+        above: 539
+      - condition: template
+        value_template: >
+          {{ state_attr('climate.ir_heizung_kinderzimmer_2', 'temperature') | float(0) != 21.5 }}
+    action:
+      - service: climate.set_temperature
+        target:
+          entity_id: climate.ir_heizung_kinderzimmer_2
+        data:
+          temperature: 21.5
+
+  - id: ir_kz2_surplus_ausschalten
+    alias: "IR-Heizung Kinderzimmer 2 Surplus Ausschalten"
+    mode: single
+    trigger:
+      - platform: template
+        value_template: >
+          {{ states('sensor.grid_power_average') | float(0) >= -300
+             or states('sensor.rd6030_ueberschussleistung') | float(0) < 540 }}
+      - platform: time_pattern
+        seconds: "/30"
+    condition:
+      - condition: template
+        value_template: >
+          {{ state_attr('climate.ir_heizung_kinderzimmer_2', 'temperature') | float(0) != 7.0 }}
+    action:
+      - service: climate.set_temperature
+        target:
+          entity_id: climate.ir_heizung_kinderzimmer_2
+        data:
+          temperature: 7
