@@ -84,8 +84,6 @@ views:
             name: Maximaler Stellschritt
           - entity: input_number.soyosource_feed_in_settle_time
             name: Beruhigungszeit
-          - entity: input_number.soyosource_feed_in_low_battery_voltage
-            name: Batterie Unterspannungsgrenze
           - entity: input_number.soyosource_feed_in_stale_timeout
             name: Messwert-Timeout
           - entity: input_text.soyosource_feed_in_meter_entity
@@ -104,8 +102,8 @@ views:
             name: Regeldifferenz
           - entity: sensor.soyosource_naechste_sollleistung
             name: Naechste Sollleistung
-          - entity: sensor.soyosource_victron_esp32_mppt_battery_voltage
-            name: Batterie Spannung
+          - entity: sensor.victronbattery_soc226
+            name: Batterie SOC
           - entity: binary_sensor.soyosource_messwert_frisch
             name: Messwert frisch
           - entity: binary_sensor.soyosource_batterie_niedrig
