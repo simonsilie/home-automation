@@ -63,7 +63,7 @@ input_number:
     step: 10
     unit_of_measurement: W
     mode: box
-    initial: 400
+    initial: 600
 
   soyosource_feed_in_settle_time:
     # Seconds to wait after each setpoint change before re-evaluating.
@@ -242,7 +242,7 @@ template:
           {% set soc = states('sensor.victronbattery_soc226') %}
           {% set was_low = this.state == 'on' if this is defined and this.state is not none else false %}
           {% if soc in ['unknown', 'unavailable', 'none', ''] %}
-            false
+            true
           {% elif was_low %}
             {{ (soc | float(0)) <= 20 }}
           {% else %}
