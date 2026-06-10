@@ -86,16 +86,6 @@ input_number:
     mode: box
     initial: 60
 
-  soyosource_feed_in_low_battery_voltage:
-    name: Soyosource Batterie Unterspannungsgrenze
-    icon: mdi:battery-alert-variant-outline
-    min: 20
-    max: 30
-    step: 0.05
-    unit_of_measurement: V
-    mode: box
-    initial: 24
-
 template:
   - sensor:
       - name: Soyosource Netzleistung Direkt
@@ -249,16 +239,14 @@ template:
         unique_id: soyosource_batterie_niedrig
         icon: mdi:battery-alert-variant-outline
         state: >
-          {% set voltage = states('sensor.soyosource_victron_esp32_mppt_battery_voltage') %}
-          {% set threshold = states('input_number.soyosource_feed_in_low_battery_voltage') | float(24.15) %}
-          {% set release_threshold = threshold + 1 %}
+          {% set soc = states('sensor.victronbattery_soc226') %}
           {% set was_low = this.state == 'on' if this is defined and this.state is not none else false %}
-          {% if voltage in ['unknown', 'unavailable', 'none', ''] %}
+          {% if soc in ['unknown', 'unavailable', 'none', ''] %}
             false
           {% elif was_low %}
-            {{ (voltage | float(0)) < release_threshold }}
+            {{ (soc | float(0)) <= 20 }}
           {% else %}
-            {{ (voltage | float(0)) < threshold }}
+            {{ (soc | float(0)) <= 10 }}
           {% endif %}
 
 automation:
@@ -270,11 +258,10 @@ automation:
       - platform: state
         entity_id:
           - sensor.grid_power_average
-          - sensor.soyosource_victron_esp32_mppt_battery_voltage
+          - sensor.victronbattery_soc226
           - input_number.soyosource_feed_in_target_power
           - input_number.soyosource_feed_in_deadband
           - input_number.soyosource_feed_in_max_step
-          - input_number.soyosource_feed_in_low_battery_voltage
           - input_number.soyosource_feed_in_stale_timeout
           - input_boolean.soyosource_feed_in_control_enabled
       - platform: time_pattern
@@ -318,7 +305,7 @@ automation:
                       entity_id: number.soyosource_victron_esp32_manual_power_demand
                     data:
                       value: 0
-              - stop: Batteriespannung unter Unterspannungsgrenze.
+              - stop: Batterie-SOC zu niedrig.
 
       - if:
           - condition: state
