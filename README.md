@@ -9,6 +9,7 @@ Das Repo ist in zwei Bereiche aufgeteilt:
 
 - [esphome/](esphome/) – ESPHome-Firmware-YAMLs für die ESP-Geräte
 - [homeassistant/](homeassistant/) – Home Assistant-Konfiguration (als Packages)
+- [venus-os/](venus-os/) – Dienste für den Cerbo GX / Venus OS
 
 ### Einspeiseregelung (Soyosource)
 
@@ -50,6 +51,11 @@ Beide gleichzeitig aktiv würden einen sinnlosen Kreislauf erzeugen (Netz → RD
 Batterie → Soyosource → Netz).
 
 Der Victron wird vom ESP32 nur per VE.Direct mitgelesen (Telemetrie), nicht aktiv gesteuert.
+Der IR-Zähler veröffentlicht seine Werte zusätzlich per MQTT, damit ein Venus-OS-Dienst auf
+dem Cerbo GX daraus einen Victron-Grid-Meter-Service auf D-Bus erzeugen kann. Venus OS liest
+ESPHome-Geräte nicht direkt; der MQTT-zu-D-Bus-Dienst auf dem Cerbo bleibt dafür erforderlich.
+Der Dienst liegt unter [venus-os/mqtt-grid-meter/](venus-os/mqtt-grid-meter/) und nutzt den
+MQTT-Broker von Home Assistant; Node-RED ist dafür nicht nötig.
 
 ## ESPHome
 

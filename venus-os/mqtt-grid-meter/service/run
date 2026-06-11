@@ -1,0 +1,4 @@
+#!/bin/sh
+exec 2>&1
+cd /data/etc/mqtt-grid-meter
+exec python3 mqtt_grid_meter.py --config /data/etc/mqtt-grid-meter/config.ini
