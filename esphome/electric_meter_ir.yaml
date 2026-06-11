@@ -56,6 +56,14 @@ api:
   encryption:
     key: !secret api_encryption_key
 
+# MQTT feed for Venus OS / Cerbo GX bridge. ESPHome API stays enabled for Home Assistant.
+mqtt:
+  broker: !secret mqtt_broker
+  username: !secret mqtt_username
+  password: !secret mqtt_password
+  topic_prefix: electric-meter-ir
+  discovery: false
+
 ota:
   platform: esphome
   password: !secret ota_password
