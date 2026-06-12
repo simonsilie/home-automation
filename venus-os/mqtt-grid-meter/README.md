@@ -48,6 +48,10 @@ No Node-RED and no Venus OS Large image are required.
    ./install.sh
    ```
 
+   The installer also adds `/data/etc/mqtt-grid-meter/boot.sh` to `/data/rc.local`.
+   This is needed because Venus OS rebuilds `/service` during boot, so direct service
+   links below `/service` do not survive a reboot.
+
 7. Check the service log:
 
    ```sh
@@ -96,4 +100,11 @@ power_multiplier = -1
 svc -u /service/mqtt-grid-meter  # start
 svc -d /service/mqtt-grid-meter  # stop
 svc -t /service/mqtt-grid-meter  # restart
+```
+
+After a reboot, verify that the boot hook recreated the service link:
+
+```sh
+ls -l /service/mqtt-grid-meter
+dbus -y com.victronenergy.grid.mqtt_ir_grid_meter /Connected GetValue
 ```
