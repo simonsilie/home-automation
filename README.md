@@ -57,6 +57,11 @@ ESPHome-Geräte nicht direkt; der MQTT-zu-D-Bus-Dienst auf dem Cerbo bleibt daf�
 Der Dienst liegt unter [venus-os/mqtt-grid-meter/](venus-os/mqtt-grid-meter/) und nutzt den
 MQTT-Broker von Home Assistant; Node-RED ist dafür nicht nötig.
 
+OpenDTU/Hoymiles data should be integrated on the Cerbo as a PV inverter, not
+as another grid meter. For that, `henne49/dbus-opendtu` can run directly on
+Venus OS and query OpenDTU through the REST API. A local installation note and
+example configuration are available under [venus-os/](venus-os/).
+
 ## ESPHome
 
 | Datei | Hardware | Zweck |

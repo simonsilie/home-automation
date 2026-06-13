@@ -1,0 +1,52 @@
+[DEFAULT]
+# Query OpenDTU through its REST API.
+DTU=opendtu
+Host=OPENDTU_IP
+HTTPTimeout=2.5
+
+# Leave empty if the OpenDTU status endpoint is reachable without login.
+Username =
+Password =
+
+# OpenDTU polling is fixed to 5000 ms in the upstream code.
+# This option only affects AhoyDTU on ESP8266.
+ESP8266PollingIntervall=10000
+
+# Keep logs small. Temporarily use DEBUG for troubleshooting.
+Logging=ERROR
+SignOfLifeLog=5
+
+# This setup has two microinverters configured in OpenDTU: HM800 and HM600.
+# NumberOfTemplates must stay 0, otherwise template examples from upstream can
+# create extra devices such as a generator in Venus OS.
+NumberOfTemplates=0
+NumberOfInvertersToQuery=2
+
+# YieldTotal is usually right for VRM. If VRM treats an existing lifetime
+# counter as today's yield on the first day, temporarily set useYieldDay=1.
+useYieldDay=0
+
+ErrorMode=retrycount
+RetryAfterSeconds=120
+MinRetriesUntilFail=3
+ErrorStateAfterSeconds=600
+MaxAgeTsLastSuccess=600
+DryRun=0
+
+[INVERTER0]
+# HM800. Set L1/L2/L3 to the actual AC phase.
+Phase=L2
+
+# Must be unique in Venus OS. mqtt-grid-meter already uses 40 in this repo.
+DeviceInstance=50
+
+# 0 = AC input/grid side, 1 = AC output/backup-load side.
+AcPosition=0
+Servicename=com.victronenergy.pvinverter
+
+[INVERTER1]
+# HM600. Use the same phase as HM800 if both are connected to the same phase.
+Phase=L1
+DeviceInstance=51
+AcPosition=0
+Servicename=com.victronenergy.pvinverter
