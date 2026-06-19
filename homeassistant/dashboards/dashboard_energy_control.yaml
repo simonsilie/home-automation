@@ -27,7 +27,7 @@ views:
               yellow: 1200
               red: 2400
           - type: gauge
-            entity: sensor.victron_system_battery_power
+            entity: sensor.smartshunt_300a_id_279_batterieleistung
             name: Batterie/WR-Leistung
             min: -3000
             max: 3000
@@ -36,8 +36,12 @@ views:
               yellow: 10
               red: 2000
           - type: tile
-            entity: sensor.victronbattery_soc226
+            entity: sensor.smartshunt_300a_id_279_batterieladung
             name: Batterie SOC
+            color: primary
+          - type: tile
+            entity: sensor.temperature_battery_temperatur
+            name: Batterie Temperatur
             color: primary
 
       - type: entities
@@ -51,10 +55,12 @@ views:
             name: Netzleistung Mittelwert
           - entity: sensor.opendtu_91fd98_ac_power
             name: PV-Leistung
-          - entity: sensor.victron_system_battery_power
+          - entity: sensor.smartshunt_300a_id_279_batterieleistung
             name: Batterie/WR-Leistung
-          - entity: sensor.victronbattery_soc226
+          - entity: sensor.smartshunt_300a_id_279_batterieladung
             name: Batterie SOC
+          - entity: sensor.temperature_battery_temperatur
+            name: Batterie Temperatur
 
       - type: history-graph
         title: Leistung letzte 2 Stunden
@@ -65,5 +71,5 @@ views:
             name: Netz
           - entity: sensor.opendtu_91fd98_ac_power
             name: PV
-          - entity: sensor.victron_system_battery_power
+          - entity: sensor.smartshunt_300a_id_279_batterieleistung
             name: Batterie/WR

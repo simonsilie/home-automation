@@ -239,7 +239,7 @@ template:
         unique_id: soyosource_batterie_niedrig
         icon: mdi:battery-alert-variant-outline
         state: >
-          {% set soc = states('sensor.victronbattery_soc226') %}
+          {% set soc = states('sensor.smartshunt_300a_id_279_batterieladung') %}
           {% set was_low = this.state == 'on' if this is defined and this.state is not none else false %}
           {% if soc in ['unknown', 'unavailable', 'none', ''] %}
             true
@@ -258,7 +258,7 @@ automation:
       - platform: state
         entity_id:
           - sensor.grid_power_average
-          - sensor.victronbattery_soc226
+          - sensor.smartshunt_300a_id_279_batterieladung
           - input_number.soyosource_feed_in_target_power
           - input_number.soyosource_feed_in_deadband
           - input_number.soyosource_feed_in_max_step
