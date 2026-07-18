@@ -1,28 +1,29 @@
-# ESPHome: IR-Lesekopf (z. B. Hichi) → UART → SML-Stromzähler → Home Assistant (ESP8266)
+# ESPHome: IR read head (e.g. Hichi) -> UART -> SML power meter -> Home Assistant (ESP8266)
 #
-# Voraussetzung: Der Zähler sendet SML über die optische Schnittstelle (typisch bei
-# modernen eHZ). Bei reinem IEC 62056-21 / Mode-D ist diese YAML nicht passend.
+# Requirement: the meter sends SML over its optical interface (typical for modern eHZ
+# meters). For plain IEC 62056-21 / Mode D this YAML is not suitable.
 #
-# Verkabelung:
-#   - GND ↔ GND
-#   - VCC ↔ 3,3 V (nur wenn der Kopf für 3,3 V ausgelegt ist – sonst 5 V + Pegelanpassung)
-#   - Datenleitung vom Kopf RX → RX des ESP (TX am Kopf wird nicht benötigt)
+# Wiring:
+#   - GND <-> GND
+#   - VCC <-> 3.3 V (only if the head is rated for 3.3 V - otherwise 5 V + level shifting)
+#   - Data line from head RX -> RX of the ESP (TX on the head is not needed)
 #
-# OBIS-Codes / Skalierung: Bei fehlenden Werten oder falschen Zahlen Logger auf DEBUG stellen
-# und ESPHome-Log auf OBIS-Zeilen prüfen; „multiply“ ggf. auf 0.0001 o. Ä. anpassen (Zählerabhängig).
+# OBIS codes / scaling: if values are missing or wrong, set the logger to DEBUG and check
+# the ESPHome log for OBIS lines; adjust "multiply" to 0.0001 or similar if needed
+# (meter-dependent).
 #
-# Nach dem Flashen in HA: Energy-Dashboard mit Sensor „Bezug Gesamtenergie“ (kWh) verknüpfen.
+# After flashing, link the "Total Energy Import" sensor (kWh) in the HA Energy dashboard.
 
 substitutions:
   device_name: electric-meter-ir
   friendly_name: Electric Meter IR
-  # Echte UART0-Konfiguration auf ESP8266: RX0=GPIO3, TX0=GPIO1.
-  # Achtung: Logger bleibt auf baud_rate: 0, damit UART0 komplett frei ist.
+  # Real UART0 configuration on ESP8266: RX0=GPIO3, TX0=GPIO1.
+  # Attention: logger stays at baud_rate: 0 so UART0 is completely free.
   pin_rx: GPIO3
   pin_tx: GPIO1
   uart_baud_rate: "9600"
-  # Hichi/SML-Lesekoepfe liefern in der Regel 8N1. Falls ein Zaehler 7E1 nutzt
-  # (eher bei IEC 62056-21 / Mode-D), muss hier auf EVEN umgestellt werden.
+  # Hichi/SML read heads usually deliver 8N1. If a meter uses 7E1
+  # (more common with IEC 62056-21 / Mode D), switch this to EVEN.
   uart_parity: NONE
   uart_stop_bits: "1"
 
@@ -37,24 +38,13 @@ esphome:
 esp8266:
   board: d1_mini
 
-wifi:
-  ssid: !secret wifi_ssid
-  password: !secret wifi_password
-  min_auth_mode: WPA2
-  ap:
-    ssid: "${friendly_name} Fallback"
-    password: !secret ota_password
+packages:
+  base: !include common/base.yaml
 
-captive_portal:
-
-# Standard: Log über USB (UART0). Nutzt du stattdessen GPIO3 als RX für den Zähler: baud_rate: 0 setzen.
+# Logger on UART0 would clash with the meter, so it stays silent (baud_rate: 0).
 logger:
   level: INFO
   baud_rate: 0
-
-api:
-  encryption:
-    key: !secret api_encryption_key
 
 # MQTT feed for Venus OS / Cerbo GX bridge. ESPHome API stays enabled for Home Assistant.
 mqtt:
@@ -63,13 +53,6 @@ mqtt:
   password: !secret mqtt_password
   topic_prefix: electric-meter-ir
   discovery: false
-
-ota:
-  platform: esphome
-  password: !secret ota_password
-
-web_server:
-  port: 80
 
 uart:
   id: uart_meter
@@ -80,7 +63,7 @@ uart:
   parity: ${uart_parity}
   stop_bits: ${uart_stop_bits}
 
-# SML ist passiv (nur Empfang). Bei Prüfsummenfehlern in den Logs: UART auf 9600/8N1 probieren.
+# SML is passive (receive only). On checksum errors in the logs: try UART 9600/8N1.
 sml:
   id: sml_meter
   uart_id: uart_meter
@@ -95,8 +78,8 @@ sensor:
     device_class: energy
     state_class: total_increasing
     filters:
-      # SML liefert Wh mit Skaler 10^-1 (Bytes 52 FF), Komponente skaliert nicht selbst.
-      # 14364 (Rohwert) * 0.0001 = 1.4364 kWh.
+      # SML delivers Wh with scaler 10^-1 (bytes 52 FF), the component does not scale itself.
+      # 14364 (raw value) * 0.0001 = 1.4364 kWh.
       - multiply: 0.0001
   - platform: sml
     name: Total Energy Export
@@ -149,7 +132,7 @@ sensor:
     device_class: voltage
     state_class: measurement
     filters:
-      # Skaler -1 → V
+      # Scaler -1 -> V
       - multiply: 0.1
   - platform: sml
     name: Voltage L2
@@ -180,7 +163,7 @@ sensor:
     device_class: current
     state_class: measurement
     filters:
-      # Skaler -2 → A
+      # Scaler -2 -> A
       - multiply: 0.01
   - platform: sml
     name: Current L2
@@ -211,7 +194,7 @@ sensor:
     device_class: frequency
     state_class: measurement
     filters:
-      # Skaler -1 → Hz
+      # Scaler -1 -> Hz
       - multiply: 0.1
   - platform: sml
     name: Phase Angle U_L2 U_L1
@@ -222,7 +205,7 @@ sensor:
     state_class: measurement
     disabled_by_default: true
     filters:
-      # Skaler -1 → Grad
+      # Scaler -1 -> degrees
       - multiply: 0.1
   - platform: sml
     name: Phase Angle U_L3 U_L1

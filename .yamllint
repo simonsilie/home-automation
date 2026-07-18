@@ -2,6 +2,7 @@ extends: default
 
 ignore: |
   esphome/.esphome/
+  .kilo/
 
 rules:
   line-length: disable

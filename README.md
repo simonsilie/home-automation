@@ -1,86 +1,91 @@
 # Home Automation
 
-Konfigurationen für mein Smart-Home-Setup rund um Stromzähler, Balkonkraftwerk-Limiter,
-Solarladeregler und überschussbasiertes Laden eines Labornetzteils.
+Configurations for my smart home setup: power meter, balcony solar feed-in limiter,
+solar charge controller and surplus-based charging with a lab power supply.
 
-## Überblick
+## Overview
 
-Das Repo ist in zwei Bereiche aufgeteilt:
+The repository is split into three areas:
 
-- [esphome/](esphome/) – ESPHome-Firmware-YAMLs für die ESP-Geräte
-- [homeassistant/](homeassistant/) – Home Assistant-Konfiguration (als Packages)
-- [venus-os/](venus-os/) – Dienste für den Cerbo GX / Venus OS
+- [esphome/](esphome/) – ESPHome firmware YAMLs for the ESP devices
+- [homeassistant/](homeassistant/) – Home Assistant configuration (packages, dashboard,
+  and the mirrored top-level config files)
+- [venus-os/](venus-os/) – Services for the Cerbo GX / Venus OS
 
-### Einspeiseregelung (Soyosource)
+### Feed-in control (Soyosource)
 
 ```mermaid
 flowchart TD
-    Batterie[(Batterie)] -->|DC| Soyosource[Soyosource GTN\nWechselrichter]
-    Soyosource -->|AC| PCC[Hausanschluss PCC]
-    PCC -->|IR-Lesekopf| ESP8266[ESP8266\nelectric_meter_ir]
-    ESP8266 -->|Wirkleistung| HA[Home Assistant]
-    HA -->|Sollleistung| ESP32[ESP32\nsoyosource-victron]
+    Battery[(Battery)] -->|DC| Soyosource[Soyosource GTN\ninverter]
+    Soyosource -->|AC| PCC[Grid connection point PCC]
+    PCC -->|IR read head| ESP8266[ESP8266\nelectric_meter_ir]
+    ESP8266 -->|Active power| HA[Home Assistant]
+    HA -->|Power setpoint| ESP32[ESP32\nsoyosource-victron]
     ESP32 -->|RS485| Soyosource
 ```
 
-### Ueberschussladen (RD6030W)
+### Surplus charging (RD6030W)
 
 ```mermaid
 flowchart TD
-    PCC[Hausanschluss PCC] -->|AC| RD6030W[RD6030W\nNetzteil]
+    PCC[Grid connection point PCC] -->|AC| RD6030W[RD6030W\npower supply]
     RD6030W -->|DC| MPPT[Victron MPPT]
-    MPPT -->|DC laden| Batterie[(Batterie)]
-    PCC -->|IR-Lesekopf| ESP8266[ESP8266\nelectric_meter_ir]
-    ESP8266 -->|Wirkleistung| HA[Home Assistant]
+    MPPT -->|DC charge| Battery[(Battery)]
+    PCC -->|IR read head| ESP8266[ESP8266\nelectric_meter_ir]
+    ESP8266 -->|Active power| HA[Home Assistant]
     RD6030W -->|Modbus RTU| ESP8266_RIDEN[ESP8266\nriden-psu]
     ESP8266_RIDEN -->|ESPHome API| HA
     MPPT -->|VE.Direct| ESP32[ESP32\nsoyosource-victron]
-    ESP32 -->|Telemetrie| HA
+    ESP32 -->|Telemetry| HA
 ```
 
-Der Soyosource GTN ist direkt an der Batterie (DC) angeschlossen und speist über seinen
-AC-Ausgang ins Hausnetz ein. Das RD6030W bezieht AC vom Hausanschluss und gibt DC an den
-PV-Eingang des Victron-MPPT — das Netzteil emuliert einen PV-String, der MPPT lädt damit
-die Batterie regelkonform.
+The Soyosource GTN is connected directly to the battery (DC) and feeds into the house
+grid via its AC output. The RD6030W draws AC from the grid connection point and outputs
+DC to the PV input of the Victron MPPT — the power supply emulates a PV string, and the
+MPPT charges the battery from it in a regulation-compliant way.
 
-Die beiden Modi schließen sich gegenseitig aus: Wenn das Balkonkraftwerk mehr erzeugt als
-verbraucht wird (Überschuss am Zähler), lädt der RD6030W die Batterie — der Soyosource
-speist in diesem Fall nicht ein. Erst wenn die Batterie geladen ist oder kein Überschuss
-mehr vorhanden ist, kann der Soyosource wieder aus der Batterie ins Netz einspeisen.
-Beide gleichzeitig aktiv würden einen sinnlosen Kreislauf erzeugen (Netz → RD6030W →
-Batterie → Soyosource → Netz).
+The two modes are mutually exclusive: when the balcony solar plant produces more than is
+consumed (surplus at the meter), the RD6030W charges the battery — the Soyosource does
+not feed in during that time. Only once the battery is full or there is no more surplus
+can the Soyosource feed in from the battery again. Running both at the same time would
+create a pointless cycle (grid → RD6030W → battery → Soyosource → grid).
 
-Der Victron wird vom ESP32 nur per VE.Direct mitgelesen (Telemetrie), nicht aktiv gesteuert.
-Der IR-Zähler veröffentlicht seine Werte zusätzlich per MQTT, damit ein Venus-OS-Dienst auf
-dem Cerbo GX daraus einen Victron-Grid-Meter-Service auf D-Bus erzeugen kann. Venus OS liest
-ESPHome-Geräte nicht direkt; der MQTT-zu-D-Bus-Dienst auf dem Cerbo bleibt dafür erforderlich.
-Der Dienst liegt unter [venus-os/mqtt-grid-meter/](venus-os/mqtt-grid-meter/) und nutzt den
-MQTT-Broker von Home Assistant; Node-RED ist dafür nicht nötig.
+The Victron is only read by the ESP32 via VE.Direct (telemetry), not actively controlled.
+The IR meter additionally publishes its values via MQTT so that a Venus OS service on
+the Cerbo GX can turn them into a Victron grid meter service on D-Bus. Venus OS cannot
+read ESPHome devices directly; the MQTT-to-D-Bus service on the Cerbo remains necessary.
+The service lives in [venus-os/mqtt-grid-meter/](venus-os/mqtt-grid-meter/) and uses the
+Home Assistant MQTT broker; Node-RED is not needed.
 
-OpenDTU/Hoymiles data should be integrated on the Cerbo as a PV inverter, not
-as another grid meter. For that, `henne49/dbus-opendtu` can run directly on
-Venus OS and query OpenDTU through the REST API. A local installation note and
-example configuration are available under [venus-os/](venus-os/).
+OpenDTU/Hoymiles data is integrated on the Cerbo as a PV inverter, not as another grid
+meter. For that, `henne49/dbus-opendtu` runs directly on Venus OS and queries OpenDTU
+through the REST API. An installation note and example configuration are available under
+[venus-os/](venus-os/).
 
 ## ESPHome
 
-| Datei | Hardware | Zweck |
+| File | Hardware | Purpose |
 | --- | --- | --- |
-| [esphome/electric_meter_ir.yaml](esphome/electric_meter_ir.yaml) | ESP8266 (D1 mini) + Hichi IR-Lesekopf | SML-Zähler über UART auslesen, OBIS-Werte als HA-Sensoren |
-| [esphome/riden-psu.yaml](esphome/riden-psu.yaml) | ESP8266 (Riden WiFi-Dongle / ESP-12F) + Modbus RTU | RD60xx-Netzteil per Modbus auslesen und steuern, Entitäten per ESPHome API nach HA bringen |
-| [esphome/soyosource-victron-esp32.yaml](esphome/soyosource-victron-esp32.yaml) | ESP32 + MAX485 + VE.Direct | Soyosource GTN Limiter (RS485) und Victron MPPT (VE.Direct) auf einem Gerät |
+| [esphome/electric_meter_ir.yaml](esphome/electric_meter_ir.yaml) | ESP8266 (D1 mini) + Hichi IR read head | Read the SML meter via UART, expose OBIS values as HA sensors |
+| [esphome/riden-psu.yaml](esphome/riden-psu.yaml) | ESP8266 (Riden WiFi dongle / ESP-12F) + Modbus RTU | Read and control the RD60xx power supply via Modbus, expose entities to HA via the ESPHome API |
+| [esphome/soyosource-victron-esp32.yaml](esphome/soyosource-victron-esp32.yaml) | ESP32 + MAX485 + VE.Direct | Soyosource GTN limiter (RS485) and Victron MPPT + SmartShunt (VE.Direct) on one device |
 
-Genutzte externe Komponenten:
+Shared blocks (WiFi, API, OTA, web server) live in
+[esphome/common/base.yaml](esphome/common/base.yaml) and are pulled into each device
+config via `packages: base: !include common/base.yaml`.
+
+External components used:
 
 - [syssi/esphome-soyosource-gtn-virtual-meter](https://github.com/syssi/esphome-soyosource-gtn-virtual-meter)
 - [KinDR007/VictronMPPT-ESPHOME](https://github.com/KinDR007/VictronMPPT-ESPHOME)
 
 ### Secrets
 
-`esphome/secrets.yaml` aus [esphome/secrets.yaml.example](esphome/secrets.yaml.example) erzeugen
-und ausfüllen (WLAN, OTA, API-Key).
+Create `esphome/secrets.yaml` from
+[esphome/secrets.yaml.example](esphome/secrets.yaml.example) and fill it in
+(WiFi, OTA, API key, MQTT for the IR meter).
 
-### Flashen
+### Flashing
 
 ```sh
 cd esphome
@@ -91,55 +96,45 @@ esphome run soyosource-victron-esp32.yaml
 
 ## Home Assistant
 
-| Datei | Zweck |
+| File | Purpose |
 | --- | --- |
-| [homeassistant/packages/rd6030_battery_surplus_charge.yaml](homeassistant/packages/rd6030_battery_surplus_charge.yaml) | Überschussladung der Batterie über den per ESPHome eingebundenen RD6030W |
-| [homeassistant/packages/soyosource_feed_in_control.yaml](homeassistant/packages/soyosource_feed_in_control.yaml) | Einspeiseregelung für den Soyosource im Handbetrieb |
+| [homeassistant/packages/energy_meter_common.yaml](homeassistant/packages/energy_meter_common.yaml) | Shared sensors derived from the grid meter (`sensor.grid_power_average`) used by the controllers |
+| [homeassistant/packages/rd6030_battery_surplus_charge.yaml](homeassistant/packages/rd6030_battery_surplus_charge.yaml) | Surplus charging of the battery via the ESPHome-integrated RD6030W |
+| [homeassistant/packages/soyosource_feed_in_control.yaml](homeassistant/packages/soyosource_feed_in_control.yaml) | Feed-in control for the Soyosource in manual mode |
+| [homeassistant/packages/ir_heizung_kinderzimmer2_control.yaml](homeassistant/packages/ir_heizung_kinderzimmer2_control.yaml) | Enables an IR heater when surplus exceeds the battery charging ceiling |
+| [homeassistant/packages/waste_collection.yaml](homeassistant/packages/waste_collection.yaml) | Waste collection schedule (HACS integration, ICS source) |
 
-### Riden-Dongle / ESPHome
+The [homeassistant/](homeassistant/) directory mirrors a complete Home Assistant config
+directory; see [homeassistant/README.md](homeassistant/README.md) for installation, the
+surplus-charging control flow and the YAML dashboard. Device credentials live in
+`esphome/secrets.yaml`; one HA secret is still required (`waste_ics_url`) for
+[homeassistant/packages/waste_collection.yaml](homeassistant/packages/waste_collection.yaml).
 
-Der RD6030W wird hier nicht mehr direkt aus Home Assistant per Modbus/TCP oder HTTP
-angesprochen. Stattdessen läuft auf dem internen WLAN-Dongle eine ESPHome-Firmware,
-die per Modbus RTU mit dem Netzteil spricht und die Entitäten über die ESPHome-API
-in Home Assistant bereitstellt.
+### Riden dongle / ESPHome
 
-Die Konfiguration in [esphome/riden-psu.yaml](esphome/riden-psu.yaml) basiert auf
+The RD6030W is no longer driven directly from Home Assistant via Modbus/TCP or HTTP.
+Instead, an ESPHome firmware runs on its internal WiFi dongle, talks Modbus RTU to the
+power supply and exposes the entities to Home Assistant through the ESPHome API.
+
+The configuration in [esphome/riden-psu.yaml](esphome/riden-psu.yaml) is based on
 **[morgendagen/riden-dongle](https://github.com/morgendagen/riden-dongle)**.
 
-Empfohlen: **[morgendagen/riden-dongle](https://github.com/morgendagen/riden-dongle)** –
-PlatformIO-Firmware (ESP8266/ESP-12F), die Modbus TCP, SCPI und ein Web-Interface bereitstellt.
+> **Hardware note:** Newer dongles use an ESP8684 chip with an encrypted bootloader
+> (not flashable). These must first be converted to an ESP-12F before the firmware can
+> be flashed. See the project's README for details.
 
-> **Hinweis Hardware:** Neuere Dongles verwenden einen ESP8684-Chip mit verschlüsseltem
-> Bootloader (nicht flashbar). Diese müssen erst auf einen ESP-12F umgerüstet werden, bevor
-> riden-dongle aufgespielt werden kann. Details siehe README des Projekts.
+## Safety notes
 
-### Einbinden
+- 230 V wiring of the Soyosource and RD6030W belongs in qualified hands.
+- RD6030W → MPPT PV input: keep the output voltage within the MPPT's allowed PV input
+  window (mind Vmax) and limit the current to the model's rating. Real PV modules and
+  the RD6030 must not run in parallel on the same MPPT input without decoupling
+  (avoid back-feeding the power supply — e.g. blocking diode or changeover switching).
+- The actual charge termination is handled by the Victron MPPT incl. BMS cut-off; this
+  automation only controls the supplied power and does not replace hardware protection.
+- Start with conservative setpoints (max. charge current, power demand) and observe live
+  operation before raising limits.
 
-In `configuration.yaml`:
-
-```yaml
-homeassistant:
-  packages: !include_dir_named packages/
-```
-
-Dann den Package-Ordner mit dem Inhalt aus [homeassistant/packages/](homeassistant/packages/)
-befüllen. Für die aktuell versionierten Packages ist kein eigenes
-`homeassistant/secrets.yaml` mehr erforderlich; die Zugangsdaten liegen in
-`esphome/secrets.yaml` für die jeweiligen ESPHome-Geräte.
-
-## Sicherheitshinweise
-
-- 230 V-Verkabelung von Soyosource und RD6030W gehört in qualifizierte Hände.
-- RD6030W → MPPT-PV-Eingang: Ausgangsspannung innerhalb des erlaubten PV-Eingangsfensters
-  des MPPT halten (Vmax beachten) und Strom auf das Modell-Limit begrenzen. Echte PV-Module
-  und der RD6030 dürfen am selben MPPT-Eingang nicht ohne Entkopplung parallel betrieben
-  werden (Rückspeisung in das Netzteil vermeiden — z. B. Sperrdiode oder Umschaltung).
-- Die eigentliche Ladeschluss-Regelung übernimmt der Victron-MPPT inkl. BMS-Abschaltung;
-  diese Automatisierung steuert nur die zugeführte Leistung und ersetzt keine
-  Hardware-Schutzmaßnahmen.
-- Steuerwerte (max. Ladestrom, Sollleistung) konservativ einstellen und im Live-Betrieb
-  beobachten, bevor Limits hochgezogen werden.
-
-## Lizenz
+## License
 
 [MIT](LICENSE)
