@@ -18,6 +18,33 @@ views:
               yellow: 10
               red: 500
           - type: gauge
+            entity: sensor.electric_meter_ir_active_power_l1
+            name: Netzleistung L1
+            min: -2000
+            max: 4000
+            severity:
+              green: -2000
+              yellow: 10
+              red: 500
+          - type: gauge
+            entity: sensor.electric_meter_ir_active_power_l2
+            name: Netzleistung L2
+            min: -2000
+            max: 4000
+            severity:
+              green: -2000
+              yellow: 10
+              red: 500
+          - type: gauge
+            entity: sensor.electric_meter_ir_active_power_l3
+            name: Netzleistung L3
+            min: -2000
+            max: 4000
+            severity:
+              green: -2000
+              yellow: 10
+              red: 500
+          - type: gauge
             entity: sensor.opendtu_91fd98_ac_power
             name: PV-Leistung
             min: 0
@@ -27,8 +54,8 @@ views:
               yellow: 1200
               red: 2400
           - type: gauge
-            entity: sensor.smartshunt_300a_id_279_batterieleistung
-            name: Batterie/WR-Leistung
+            entity: sensor.gx_device_dc_batterieleistung
+            name: Batterieleistung
             min: -3000
             max: 3000
             severity:
@@ -36,7 +63,7 @@ views:
               yellow: 10
               red: 2000
           - type: tile
-            entity: sensor.smartshunt_300a_id_279_batterieladung
+            entity: sensor.gx_device_dc_batterieladung
             name: Batterie SOC
             color: primary
           - type: tile
@@ -51,13 +78,19 @@ views:
         entities:
           - entity: sensor.electric_meter_ir_active_power
             name: Netzleistung
+          - entity: sensor.electric_meter_ir_active_power_l1
+            name: Netzleistung L1
+          - entity: sensor.electric_meter_ir_active_power_l2
+            name: Netzleistung L2
+          - entity: sensor.electric_meter_ir_active_power_l3
+            name: Netzleistung L3
           - entity: sensor.grid_power_average
             name: Netzleistung Mittelwert
           - entity: sensor.opendtu_91fd98_ac_power
             name: PV-Leistung
-          - entity: sensor.smartshunt_300a_id_279_batterieleistung
-            name: Batterie/WR-Leistung
-          - entity: sensor.smartshunt_300a_id_279_batterieladung
+          - entity: sensor.gx_device_dc_batterieleistung
+            name: Batterieleistung
+          - entity: sensor.gx_device_dc_batterieladung
             name: Batterie SOC
           - entity: sensor.temperature_battery_temperatur
             name: Batterie Temperatur
@@ -71,5 +104,17 @@ views:
             name: Netz
           - entity: sensor.opendtu_91fd98_ac_power
             name: PV
-          - entity: sensor.smartshunt_300a_id_279_batterieleistung
-            name: Batterie/WR
+          - entity: sensor.gx_device_dc_batterieleistung
+            name: Batterie
+
+      - type: history-graph
+        title: Phasenleistung letzte 2 Stunden
+        hours_to_show: 2
+        refresh_interval: 30
+        entities:
+          - entity: sensor.electric_meter_ir_active_power_l1
+            name: L1
+          - entity: sensor.electric_meter_ir_active_power_l2
+            name: L2
+          - entity: sensor.electric_meter_ir_active_power_l3
+            name: L3
