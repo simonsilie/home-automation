@@ -1,42 +1,42 @@
-# ESPHome: Ein ESP32 → RS485 (Soyosource GTN Limiter) + VE.Direct (Victron MPPT + SmartShunt)
+# ESPHome: one ESP32 -> RS485 (Soyosource GTN limiter) + VE.Direct (Victron MPPT + SmartShunt)
 #
-# Quellen / Komponenten:
+# Sources / components:
 #   - Soyosource: github.com/syssi/esphome-soyosource-gtn-virtual-meter (RS485 4800 baud)
 #   - Victron: github.com/KinDR007/VictronMPPT-ESPHOME (VE.Direct 19200 baud)
 #
-# Unterstützte Wechselrichter u. a.: GTN-*LIM* mit RS485 (siehe README syssi).
+# Supported inverters include: GTN-*LIM* with RS485 (see syssi README).
 #
-# --- RS485 zum Soyosource (typisch Modul HW-0519 / MAX485) ---
-#   - Inverter A/B ↔ Modul A/B (Polarität bei Ausfall tauschen)
-#   - Modul GND ↔ ESP GND (gemeinsame Referenz mit dem DC-System sauber führen)
-#   - Modul VCC mit 3,3 V speisen (TTL-Pegel zum ESP dann 3,3 V — siehe syssi README)
-#   - Modul TX/RX ↔ RS485-TX/RS485-RX wie unten substitutiert
-#   - DE/RE: Viele Breakout-Boards verbinden DE+RE; ohne automatische Flusssteuerung
-#     ggf. auf Senden legen (Board-Schaltung beachten). syssi optional: flow_control_pin
+# --- RS485 to the Soyosource (typically HW-0519 / MAX485 module) ---
+#   - Inverter A/B <-> module A/B (swap polarity if it fails)
+#   - Module GND <-> ESP GND (keep a clean common reference with the DC system)
+#   - Power module VCC with 3.3 V (TTL levels to the ESP are then 3.3 V - see syssi README)
+#   - Module TX/RX <-> RS485-TX/RS485-RX as substituted below
+#   - DE/RE: many breakout boards tie DE+RE together; without automatic flow control
+#     tie them to send (check the board circuit). syssi optional: flow_control_pin
 #
-# --- Victron VE.Direct (JST-PH) — zwei Geräte, je eigene UART ---
-#   MPPT (${pin_ve_rx}) und SmartShunt (${pin_shunt_rx}): gleiche Verdrahtung je Gerät:
-#   - GND ↔ GND
-#   - Victron TX → ESP RX (jeweiliger Pin); Victron RX ungenutzt (nur Mitlesen)
-#   - Victron nicht über VE.Direct-5V den ESP versorgen (Strom zu gering)
-#   - TX-Pegel 3,3 V oder 5 V — bei 5 V Pegelanpassung / Teiler (Victron FAQ)
+# --- Victron VE.Direct (JST-PH) - two devices, one UART each ---
+#   MPPT (${pin_ve_rx}) and SmartShunt (${pin_shunt_rx}): same wiring per device:
+#   - GND <-> GND
+#   - Victron TX -> ESP RX (respective pin); Victron RX unused (read-only sniffing)
+#   - Do not power the ESP from VE.Direct 5V (current too low)
+#   - TX level 3.3 V or 5 V - with 5 V use level shifting / divider (Victron FAQ)
 #
-# Home Assistant: Entity für Hausbezugsleistung im Subst eintragen.
+# Home Assistant: set the entity for house grid power in the substitutions below.
 
 substitutions:
   device_name: soyosource-victron-esp32
   friendly_name: Soyosource Victron ESP32
-  # ESP32-S3: zwei UARTs für RS485 (MAX485) und VE.Direct — USB/JTAG-Pins 19/20 und ungueltige GPIOs vermeiden
+  # ESP32-S3: two UARTs for RS485 (MAX485) and VE.Direct - avoid USB/JTAG pins 19/20 and invalid GPIOs
   pin_rs485_tx: GPIO17
   pin_rs485_rx: GPIO16
   pin_ve_rx: GPIO4
   pin_shunt_rx: GPIO5
-  # Leistung am Hausanschluss (W), negativ = Einspeisung — für soyosource_virtual_meter
-  # Standard: IR-Zähler-Gerät (electric_meter_ir.yaml, device_name electric-meter-ir) → sensor.electric_meter_ir_active_power
+  # Power at the grid connection point (W), negative = feed-in - for soyosource_virtual_meter
+  # Default: IR meter device (electric_meter_ir.yaml, device_name electric-meter-ir) -> sensor.electric_meter_ir_active_power
   homeassistant_power_entity: sensor.electric_meter_ir_active_power
-  # Mittelungsfenster HA-Leistung = Takt soyosource_virtual_meter (keine Regel alle 3s bei Daten alle 15s)
+  # HA power averaging window = soyosource_virtual_meter cycle (no control every 3s with data every 15s)
   grid_power_average_interval: 15s
-  # Maximale Einspeiseleistung des Soyosource GTN in Watt
+  # Maximum feed-in power of the Soyosource GTN in watts
   max_inverter_power: "600"
   external_components_soyosource: github://syssi/esphome-soyosource-gtn-virtual-meter@main
   external_components_victron: github://KinDR007/VictronMPPT-ESPHOME@main
@@ -44,7 +44,7 @@ substitutions:
 esphome:
   name: ${device_name}
   friendly_name: ${friendly_name}
-  comment: Soyosource GTN Limiter über RS485, Victron MPPT und SmartShunt über VE.Direct auf einem ESP32.
+  comment: Soyosource GTN limiter via RS485, Victron MPPT and SmartShunt via VE.Direct on one ESP32.
   min_version: 2024.6.0
   project:
     name: simon.soyosource-victron-esp32
@@ -62,29 +62,11 @@ external_components:
   - source: ${external_components_victron}
     refresh: 0s
 
-wifi:
-  ssid: !secret wifi_ssid
-  password: !secret wifi_password
-  ap:
-    # SSID max. 32 Zeichen (ESP8266/ESP32 AP-Limit)
-    ssid: "${device_name} FB"
-    password: !secret ota_password
-
-captive_portal:
+packages:
+  base: !include common/base.yaml
 
 logger:
   level: INFO
-
-api:
-  encryption:
-    key: !secret api_encryption_key
-
-ota:
-  platform: esphome
-  password: !secret ota_password
-
-web_server:
-  port: 80
 
 uart:
   - id: uart_rs485
@@ -93,12 +75,12 @@ uart:
     rx_pin: ${pin_rs485_rx}
   - id: uart_victron
     baud_rate: 19200
-    # VE.Direct wird hier nur passiv mitgelesen: nur Victron-TX -> ESP-RX.
+    # VE.Direct is only sniffed passively here: Victron TX -> ESP RX only.
     rx_pin: ${pin_ve_rx}
     rx_buffer_size: 256
   - id: uart_smartshunt
     baud_rate: 19200
-    # VE.Direct SmartShunt: nur Victron-TX -> ESP-RX.
+    # VE.Direct SmartShunt: Victron TX -> ESP RX only.
     rx_pin: ${pin_shunt_rx}
     rx_buffer_size: 256
 
@@ -118,12 +100,12 @@ soyosource_virtual_meter:
     zero_output_on_min_power_demand: true
     power_demand_divider: 1
     buffer: 10
-    # Soyosource erwartet regelmaessige Frames; bei 15s reicht ein verlorenes Paket fuer Ausfall.
-    # 3s ist sicher und belastet den Bus nicht nennenswert (8 Byte @ 4800 baud = ~17ms).
+    # Soyosource expects regular frames; at 15s a single lost packet causes a failure.
+    # 3s is safe and does not meaningfully load the bus (8 bytes @ 4800 baud = ~17ms).
     update_interval: 3s
 
-# Purple mainboard (STC8-2022-218) antwortet nicht auf RS485-Statusabfragen (0x24...).
-# soyosource_inverter daher komplett entfernt — vermeidet unnötiges Polling auf dem Bus.
+# Purple mainboard (STC8-2022-218) does not answer RS485 status requests (0x24...).
+# soyosource_inverter therefore removed entirely - avoids unnecessary polling on the bus.
 
 victron:
   - id: victron_mppt
@@ -152,7 +134,7 @@ number:
       initial_value: ${max_inverter_power}
       max_value: ${max_inverter_power}
       restore_value: true
-    # Teilt Sollleistung auf N Inverter auf (1 = ein Inverter, keine Aufteilung)
+    # Splits the power demand across N inverters (1 = one inverter, no split)
     power_demand_divider:
       name: Power Demand Divider
       initial_value: 1

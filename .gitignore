@@ -1,0 +1,23 @@
+# ESPHome
+esphome/.esphome/
+esphome/secrets.yaml
+
+# Home Assistant runtime (if HA is ever run from this directory)
+homeassistant/secrets.yaml
+homeassistant/.storage/
+*.db
+*.db-shm
+*.db-wal
+
+# Venus OS service runtime config (contains MQTT credentials)
+venus-os/mqtt-grid-meter/config.ini
+
+# Kilo agent tooling state
+.kilo/
+
+# Python
+__pycache__/
+*.pyc
+
+# macOS
+.DS_Store
