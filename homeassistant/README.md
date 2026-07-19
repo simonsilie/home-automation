@@ -20,56 +20,42 @@ active config directory, then reload or restart Home Assistant.
 One secret is required in the active `secrets.yaml`: `waste_ics_url` (ICS calendar URL)
 for [packages/waste_collection.yaml](packages/waste_collection.yaml).
 
-## Surplus charging control flow
+## Energy system context
 
-The following diagram describes the function of
-[packages/rd6030_battery_surplus_charge.yaml](packages/rd6030_battery_surplus_charge.yaml).
+Battery charge/discharge is handled by a **Victron MultiPlus-II 3000** with a
+**Pylontech US5000**, managed by the Cerbo GX (Venus OS / ESS). Home Assistant only
+observes grid/PV/battery telemetry; it does not set battery charge current or inverter
+power demand.
 
-```mermaid
-flowchart TD
-  A[IR power meter: active power] --> B[Mean over 10 s]
-  V[Victron MPPT: panel power] --> C
-  B --> C["Surplus = -(grid power mean + 5 W - panel power)"]
-  C --> D{Controller enabled?}
-  D -- No --> E[RD6030 current = 0 A]
-  E --> F[RD6030 output OFF]
+Related integration points:
 
-  D -- Yes --> G{Soyosource feeding in?}
-  G -- Yes --> E
+- Grid meter: ESPHome IR head → MQTT → Cerbo `mqtt-grid-meter` (see [../venus-os/](../venus-os/))
+- Balcony PV: OpenDTU → Cerbo `dbus-opendtu` as Victron PV inverter
+- Battery / MultiPlus: Cerbo GX with Pylontech BMS (entities such as
+  `sensor.gx_device_dc_batterieladung`, `sensor.gx_device_dc_batterieleistung`)
 
-  G -- No --> H{Surplus greater than 0 W?}
-  H -- No --> E
+Active packages related to energy:
 
-  H -- Yes --> I[Target power = min surplus 540 W]
-  I --> J[Target current = target power / 60 V]
-  J --> K[RD6030 voltage = 60 V]
-  K --> L[Set RD6030 current]
-  L --> M[RD6030 output ON]
-```
+- [packages/energy_meter_common.yaml](packages/energy_meter_common.yaml) —
+  `sensor.grid_power_average` from the IR meter
+- [packages/ir_heizung_kinderzimmer2_control.yaml](packages/ir_heizung_kinderzimmer2_control.yaml) —
+  IR heater on surplus export when battery is full and not discharging
+  (SOC ≥ 99 %, `sensor.gx_device_dc_batterieleistung` ≤ 0 W, export ≥ 300 W)
 
-In short:
+### Retired packages (RD6030 / Soyosource)
 
-- a negative grid power value means feed-in and therefore available surplus
-- the mean smooths out fluctuations of the power meter
-- a 5 W offset ensures charging only starts at at least 5 W of feed-in
-- the panel power of the Victron MPPT is subtracted from the grid value since it
-  already counts as surplus
-- the target power is limited to 540 W (9 A at 60 V)
-- the charge voltage is fixed at 60 V
-- charging is paused while the Soyosource inverter is feeding in
+These packages controlled the previous setup and are **not used** with the MultiPlus-II
++ Pylontech system. Keep them only as historical reference; do not load them in the
+active config unless the old hardware is restored.
 
-Prerequisites:
+| Package | Former role |
+| --- | --- |
+| [packages/rd6030_battery_surplus_charge.yaml](packages/rd6030_battery_surplus_charge.yaml) | Surplus charging of the battery via RD6030W into a Victron MPPT |
+| [packages/soyosource_feed_in_control.yaml](packages/soyosource_feed_in_control.yaml) | Manual-mode feed-in control for a Soyosource GTN |
 
-- the ESPHome integration for [../esphome/riden-psu.yaml](../esphome/riden-psu.yaml) is
-  set up in Home Assistant, providing `number.riden_psu_voltage_set`,
-  `number.riden_psu_current_set` and `switch.riden_psu_output`
-- the ESPHome integration for
-  [../esphome/soyosource-victron-esp32.yaml](../esphome/soyosource-victron-esp32.yaml)
-  is set up, providing `sensor.soyosource_victron_esp32_mppt_panel_power`
-- [packages/energy_meter_common.yaml](packages/energy_meter_common.yaml) is installed,
-  providing `sensor.grid_power_average`
-- [packages/soyosource_feed_in_control.yaml](packages/soyosource_feed_in_control.yaml)
-  is installed, providing `sensor.soyosource_aktive_sollleistung`
+Former mutual exclusion: RD6030 charged on meter surplus; Soyosource only fed in when
+not charging. That loop is obsolete — the MultiPlus ESS now manages battery flux under
+Venus OS.
 
 ## Dashboard as YAML
 
@@ -95,8 +81,7 @@ reload or restart Home Assistant.
 
 The dashboard shows in particular:
 
-- current grid power via `sensor.electric_meter_ir_active_power`
+- current grid power via `sensor.electric_meter_ir_active_power` (and L1–L3)
 - current PV power via `sensor.opendtu_91fd98_ac_power`
-- manual mode and power setpoint of the Soyosource inverter
-- status, parameters and diagnostics of the HA feed-in control
-- the relation to RD6030 surplus charging
+- battery power and SOC from the Cerbo GX
+- battery temperature

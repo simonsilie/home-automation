@@ -2,6 +2,17 @@
 
 This directory contains services and notes for the Cerbo GX.
 
+## Hardware context
+
+The live ESS on this GX is:
+
+- **Victron MultiPlus-II 3000** (inverter/charger)
+- **Pylontech US5000** (battery + BMS on the GX)
+- IR grid meter and OpenDTU/Hoymiles as external integrations (see below)
+
+Charge, discharge, and ESS setpoints are owned by Venus OS. The retired RD6030W surplus
+charger and Soyosource GTN limiter are no longer part of this system.
+
 ## Services
 
 | Path | Purpose |
