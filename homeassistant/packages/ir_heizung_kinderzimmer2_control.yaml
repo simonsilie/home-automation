@@ -1,11 +1,19 @@
 # Home Assistant package: IR-Heizung Kinderzimmer 2 surplus control.
 #
+# Battery charge has priority (Victron MultiPlus-II + Pylontech US5000 ESS on
+# Cerbo GX). The IR heater only runs on remaining grid export once the battery
+# is full and not discharging.
+#
 # Sets the IR heater in Kinderzimmer 2 to 21.5 °C (heat mode) when:
-#   - grid_power_average < -300 W  (exporting ≥ 300 W to the grid)
-#   - AND surplus battery charging is already at its 540 W ceiling
+#   - grid_power_average < -300 W              (exporting ≥ 300 W)
+#   - battery SOC >= 99 %                      (sensor.gx_device_dc_batterieladung)
+#   - battery power <= 0 W                     (not discharging;
+#                                              sensor.gx_device_dc_batterieleistung,
+#                                              Victron sign: + = discharge, - = charge)
 #
 # Resets the target temperature to 7 °C (frost protection / effectively off)
-# when either condition is no longer met.
+# when export drops below 300 W, SOC falls below 97 %, or the battery starts
+# discharging (power > 0 W). SOC uses a small hysteresis.
 
 automation:
   - id: ir_kz2_surplus_einschalten
@@ -15,7 +23,9 @@ automation:
       - platform: state
         entity_id: sensor.grid_power_average
       - platform: state
-        entity_id: sensor.rd6030_ueberschussleistung
+        entity_id: sensor.gx_device_dc_batterieladung
+      - platform: state
+        entity_id: sensor.gx_device_dc_batterieleistung
       - platform: time_pattern
         seconds: "/30"
     condition:
@@ -23,8 +33,11 @@ automation:
         entity_id: sensor.grid_power_average
         below: -300
       - condition: numeric_state
-        entity_id: sensor.rd6030_ueberschussleistung
-        above: 539
+        entity_id: sensor.gx_device_dc_batterieladung
+        above: 98.9
+      - condition: numeric_state
+        entity_id: sensor.gx_device_dc_batterieleistung
+        below: 0.1
       - condition: template
         value_template: >
           {{ state_attr('climate.ir_heizung_kinderzimmer_2', 'temperature') | float(0) != 21.5 }}
@@ -42,7 +55,8 @@ automation:
       - platform: template
         value_template: >
           {{ states('sensor.grid_power_average') | float(0) >= -300
-             or states('sensor.rd6030_ueberschussleistung') | float(0) < 540 }}
+             or states('sensor.gx_device_dc_batterieladung') | float(0) < 97
+             or states('sensor.gx_device_dc_batterieleistung') | float(0) > 0 }}
       - platform: time_pattern
         seconds: "/30"
     condition:
