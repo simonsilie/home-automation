@@ -61,18 +61,21 @@ MultiPlus-II + Pylontech ESS):
 | --- | --- | --- | --- |
 | [esphome/electric_meter_ir.yaml](esphome/electric_meter_ir.yaml) | ESP8266 (D1 mini) + Hichi IR read head | Read the SML meter via UART, expose OBIS values as HA sensors / MQTT | Active |
 | [esphome/riden-psu.yaml](esphome/riden-psu.yaml) | ESP8266 (Riden WiFi dongle / ESP-12F) + Modbus RTU | RD60xx power supply control | Retired |
-| [esphome/soyosource-victron-esp32.yaml](esphome/soyosource-victron-esp32.yaml) | ESP32 + MAX485 + VE.Direct | Soyosource limiter + MPPT/Shunt telemetry | Retired |
+| [esphome/soyosource-victron-esp32.yaml](esphome/soyosource-victron-esp32.yaml) | ESP32 + MAX485 + VE.Direct | Soyosource limiter + MPPT/Shunt telemetry | Retired (needs the vendored external components above) |
 
 Shared blocks (WiFi, API, OTA, web server) live in
 [esphome/common/base.yaml](esphome/common/base.yaml) and are pulled into each device
 config via `packages: base: !include common/base.yaml`.
 
 External components used by active configs: none beyond stock ESPHome (SML meter).
-Retired configs additionally referenced:
+Retired configs additionally referenced (and vendored under `esphome/.esphome/external_components/`,
+pulled in by `soyosource-victron-esp32.yaml` with `refresh: 0s`, so they are not fetched live):
 
 - [syssi/esphome-soyosource-gtn-virtual-meter](https://github.com/syssi/esphome-soyosource-gtn-virtual-meter)
 - [KinDR007/VictronMPPT-ESPHOME](https://github.com/KinDR007/VictronMPPT-ESPHOME)
-- [morgendagen/riden-dongle](https://github.com/morgendagen/riden-dongle) (base for `riden-psu.yaml`)
+
+`riden-psu.yaml` was *inspired by* [morgendagen/riden-dongle](https://github.com/morgendagen/riden-dongle)
+but uses only stock ESPHome `modbus_controller` and does not depend on that external component.
 
 ### Secrets
 
@@ -92,7 +95,7 @@ esphome run electric_meter_ir.yaml
 | File | Purpose | Status |
 | --- | --- | --- |
 | [homeassistant/packages/energy_meter_common.yaml](homeassistant/packages/energy_meter_common.yaml) | Shared sensors derived from the grid meter (`sensor.grid_power_average`) | Active |
-| [homeassistant/packages/ir_heizung_kinderzimmer2_control.yaml](homeassistant/packages/ir_heizung_kinderzimmer2_control.yaml) | Enables an IR heater on sustained grid export when battery SOC ≥ 99 % and not discharging | Active |
+| [homeassistant/packages/ir_heizung_kinderzimmer2_control.yaml](homeassistant/packages/ir_heizung_kinderzimmer2_control.yaml) | Enables an IR heater on sustained grid export when battery SOC ≥ 98.9 % and not discharging (turns off below SOC 97 % / on discharge, with hysteresis) | Active |
 | [homeassistant/packages/waste_collection.yaml](homeassistant/packages/waste_collection.yaml) | Waste collection schedule (HACS integration, ICS source) | Active |
 | [homeassistant/packages/rd6030_battery_surplus_charge.yaml](homeassistant/packages/rd6030_battery_surplus_charge.yaml) | Surplus charging via RD6030W | Retired |
 | [homeassistant/packages/soyosource_feed_in_control.yaml](homeassistant/packages/soyosource_feed_in_control.yaml) | Soyosource feed-in control | Retired |
