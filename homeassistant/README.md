@@ -40,7 +40,8 @@ Active packages related to energy:
   `sensor.grid_power_average` from the IR meter
 - [packages/ir_heizung_kinderzimmer2_control.yaml](packages/ir_heizung_kinderzimmer2_control.yaml) —
   IR heater on surplus export when battery is full and not discharging
-  (SOC ≥ 99 %, `sensor.gx_device_dc_batterieleistung` ≤ 0 W, export ≥ 300 W)
+  (SOC ≥ 98.9 %, `sensor.gx_device_dc_batterieleistung` ≤ 0.1 W, export ≥ 300 W;
+  turns off below SOC 97 % / on discharge, with hysteresis)
 
 ### Retired packages (RD6030 / Soyosource)
 
@@ -73,7 +74,7 @@ lovelace:
       title: Energie Steuerung
       icon: mdi:transmission-tower
       show_in_sidebar: true
-      filename: dashboards/dashboard_energy_control.yaml
+      filename: /config/dashboards/dashboard_energy_control.yaml
 ```
 
 Then copy the `dashboards/` folder into the active Home Assistant config directory and
@@ -82,6 +83,8 @@ reload or restart Home Assistant.
 The dashboard shows in particular:
 
 - current grid power via `sensor.electric_meter_ir_active_power` (and L1–L3)
-- current PV power via `sensor.opendtu_91fd98_ac_power`
+- current PV power via `sensor.opendtu_91fd98_ac_power` (the `91fd98` suffix is the
+  OpenDTU inverter serial and must match the inverter configured in OpenDTU; rename it
+  if your inverter has a different serial)
 - battery power and SOC from the Cerbo GX
-- battery temperature
+- battery temperature via `sensor.temperature_battery_temperatur`
