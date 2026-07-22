@@ -127,3 +127,14 @@ After a reboot, verify that the boot hook recreated the service link:
 ls -l /service/mqtt-grid-meter
 dbus -y com.victronenergy.grid.mqtt_ir_grid_meter /Connected GetValue
 ```
+
+## Development Checks
+
+From the repository root, lint the Python files with Ruff and run the focused
+unit tests:
+
+```sh
+uv tool run ruff check venus-os/mqtt-grid-meter
+uv tool run pyrefly check
+uv tool run pytest
+```

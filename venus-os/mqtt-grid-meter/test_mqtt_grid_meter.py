@@ -14,22 +14,22 @@ class FakeGLib:
 dbus_module = types.ModuleType("dbus")
 dbus_mainloop_module = types.ModuleType("dbus.mainloop")
 dbus_glib_module = types.ModuleType("dbus.mainloop.glib")
-dbus_glib_module.DBusGMainLoop = object
-dbus_mainloop_module.glib = dbus_glib_module
-dbus_module.mainloop = dbus_mainloop_module
+dbus_glib_module.__dict__["DBusGMainLoop"] = object
+dbus_mainloop_module.__dict__["glib"] = dbus_glib_module
+dbus_module.__dict__["mainloop"] = dbus_mainloop_module
 sys.modules["dbus"] = dbus_module
 sys.modules["dbus.mainloop"] = dbus_mainloop_module
 sys.modules["dbus.mainloop.glib"] = dbus_glib_module
 
 gi_module = types.ModuleType("gi")
 gi_repository_module = types.ModuleType("gi.repository")
-gi_repository_module.GLib = FakeGLib
-gi_module.repository = gi_repository_module
+gi_repository_module.__dict__["GLib"] = FakeGLib
+gi_module.__dict__["repository"] = gi_repository_module
 sys.modules["gi"] = gi_module
 sys.modules["gi.repository"] = gi_repository_module
 
 vedbus_module = types.ModuleType("vedbus")
-vedbus_module.VeDbusService = object
+vedbus_module.__dict__["VeDbusService"] = object
 sys.modules["vedbus"] = vedbus_module
 
 import mqtt_grid_meter
