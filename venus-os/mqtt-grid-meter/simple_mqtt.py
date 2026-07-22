@@ -70,10 +70,10 @@ class SimpleMqttClient:
 
             packet_class = packet_type & 0xF0
             if packet_class == 0x30:
-                topic, payload, qos, packet_id = self._decode_publish(packet_type, body)
+                topic, payload, qos, packet_id, retained = self._decode_publish(packet_type, body)
                 if qos == 1 and packet_id is not None:
                     self._send_packet(0x40, struct.pack("!H", packet_id))
-                message_callback(topic, payload)
+                message_callback(topic, payload, retained)
             elif packet_class == 0xD0:
                 continue
 
@@ -96,12 +96,13 @@ class SimpleMqttClient:
         topic_end = 2 + topic_length
         topic = body[2:topic_end].decode("utf-8")
         qos = (packet_type & 0x06) >> 1
+        retained = bool(packet_type & 0x01)
         packet_id = None
         payload_start = topic_end
         if qos:
             packet_id = struct.unpack("!H", body[topic_end:topic_end + 2])[0]
             payload_start += 2
-        return topic, body[payload_start:].decode("utf-8", errors="replace"), qos, packet_id
+        return topic, body[payload_start:].decode("utf-8", errors="replace"), qos, packet_id, retained
 
     def _next_packet_id(self):
         packet_id = self.packet_id

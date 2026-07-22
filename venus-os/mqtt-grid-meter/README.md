@@ -10,6 +10,17 @@ electric_meter_ir ESPHome -> Home Assistant Mosquitto -> Cerbo GX service -> Ven
 
 No Node-RED and no Venus OS Large image are required.
 
+## Stale-Data Safety
+
+The D-Bus meter is marked connected only after a fresh, non-retained
+`active_power` MQTT message arrives. Broker connectivity alone does not mark
+the meter as valid. Retained MQTT sensor values are ignored, and if total power
+is not updated within `stale_seconds`, `/Connected` is set to `0` and all
+instantaneous AC values are cleared. The default timeout is 20 seconds.
+
+This prevents ESS from continuing to regulate against an old export value after
+the ESPHome meter or MQTT connection fails.
+
 ## Install On Cerbo GX
 
 1. Enable SSH/root access on the Cerbo GX.
@@ -59,6 +70,14 @@ No Node-RED and no Venus OS Large image are required.
    ```
 
 The Cerbo device list should then show a grid meter named `MQTT IR Grid Meter`.
+
+When upgrading an existing installation, copy both Python files, set
+`stale_seconds = 20` in the Cerbo's existing `config.ini`, and restart the
+service:
+
+```sh
+svc -t /service/mqtt-grid-meter
+```
 
 ## ESPHome Topics
 
