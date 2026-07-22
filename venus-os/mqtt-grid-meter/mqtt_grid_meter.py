@@ -7,6 +7,8 @@ import signal
 import sys
 import threading
 import time
+from types import FrameType
+from typing import Callable, Dict, Optional, Tuple
 
 sys.path.insert(0, "/opt/victronenergy/dbus-systemcalc-py/ext/velib_python")
 
@@ -16,6 +18,10 @@ from vedbus import VeDbusService
 
 from simple_mqtt import SimpleMqttClient
 
+
+PayloadConverter = Callable[[str], float]
+TopicTarget = Tuple[str, PayloadConverter]
+TopicMap = Dict[str, TopicTarget]
 
 VERSION = "0.1.2"
 
@@ -36,7 +42,7 @@ INSTANTANEOUS_PATHS = (
 
 
 class GridMeterService:
-    def __init__(self, config):
+    def __init__(self, config: configparser.ConfigParser) -> None:
         self.config = config
         self.topic_prefix = config.get("mqtt", "topic_prefix", fallback="electric-meter-ir").strip("/")
         self.power_multiplier = config.getfloat("grid_meter", "power_multiplier", fallback=1.0)
@@ -53,7 +59,7 @@ class GridMeterService:
         self.service.register()
         self.topic_map = self._build_topic_map()
 
-    def run(self):
+    def run(self) -> None:
         print("mqtt-grid-meter {} starting with delayed D-Bus registration".format(VERSION), flush=True)
         signal.signal(signal.SIGTERM, self._stop)
         signal.signal(signal.SIGINT, self._stop)
@@ -63,7 +69,7 @@ class GridMeterService:
         thread.start()
         self.mainloop.run()
 
-    def _add_static_paths(self):
+    def _add_static_paths(self) -> None:
         product_name = self.config.get("grid_meter", "product_name", fallback="MQTT IR Grid Meter")
         custom_name = self.config.get("grid_meter", "custom_name", fallback="Electric Meter IR")
         device_instance = self.config.getint("grid_meter", "device_instance", fallback=40)
@@ -91,7 +97,7 @@ class GridMeterService:
             self.service.add_path("/Ac/%s/Voltage" % phase, None)
             self.service.add_path("/Ac/%s/Current" % phase, None)
 
-    def _build_topic_map(self):
+    def _build_topic_map(self) -> TopicMap:
         prefix = self.topic_prefix
         return {
             "%s/sensor/active_power/state" % prefix: ("/Ac/Power", self._power),
@@ -109,7 +115,7 @@ class GridMeterService:
             "%s/sensor/grid_frequency/state" % prefix: ("/Ac/Frequency", self._float),
         }
 
-    def _mqtt_worker(self):
+    def _mqtt_worker(self) -> None:
         while not self.stop_event.is_set():
             client = None
             try:
@@ -125,7 +131,7 @@ class GridMeterService:
                 if client is not None:
                     client.close()
 
-    def _new_mqtt_client(self):
+    def _new_mqtt_client(self) -> SimpleMqttClient:
         host = self.config.get("mqtt", "host")
         port = self.config.getint("mqtt", "port", fallback=1883)
         username = self.config.get("mqtt", "username", fallback="").strip() or None
@@ -134,7 +140,7 @@ class GridMeterService:
         client_id = "venus-mqtt-grid-meter-%s" % os.uname().nodename
         return SimpleMqttClient(host, port, client_id, username, password, keepalive)
 
-    def _on_mqtt_message(self, topic, payload, retained):
+    def _on_mqtt_message(self, topic: str, payload: str, retained: bool) -> None:
         if topic not in self.topic_map:
             return
         if retained:
@@ -148,47 +154,47 @@ class GridMeterService:
             return
         GLib.idle_add(self._update_value, path, value)
 
-    def _update_value(self, path, value):
+    def _update_value(self, path: str, value: float) -> bool:
         self.service[path] = value
         if path == POWER_PATH:
             self.last_power_message = time.time()
             self.service["/Connected"] = 1
         return False
 
-    def _invalidate_meter(self):
+    def _invalidate_meter(self) -> bool:
         self.service["/Connected"] = 0
         for path in INSTANTANEOUS_PATHS:
             self.service[path] = None
         return False
 
-    def _check_stale(self):
+    def _check_stale(self) -> bool:
         if self.last_power_message and time.time() - self.last_power_message > self.stale_seconds:
             self._invalidate_meter()
             self.last_power_message = 0.0
         return True
 
-    def _stop(self, _signum, _frame):
+    def _stop(self, _signum: int, _frame: Optional[FrameType]) -> None:
         self.stop_event.set()
         self.mainloop.quit()
 
-    def _float(self, payload):
-        value = float(str(payload).strip())
+    def _float(self, payload: str) -> float:
+        value = float(payload.strip())
         if not math.isfinite(value):
             raise ValueError("non-finite meter value")
         return value
 
-    def _power(self, payload):
+    def _power(self, payload: str) -> float:
         return self._float(payload) * self.power_multiplier
 
 
-def load_config(path):
+def load_config(path: str) -> configparser.ConfigParser:
     config = configparser.ConfigParser()
     if not config.read(path):
         raise SystemExit("Could not read config file: %s" % path)
     return config
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description="Expose ESPHome MQTT meter values as Venus OS D-Bus grid meter")
     parser.add_argument("--config", default="config.ini")
     args = parser.parse_args()

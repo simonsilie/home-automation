@@ -2,12 +2,13 @@ import struct
 import sys
 import types
 import unittest
+from typing import Callable
 from unittest import mock
 
 
 class FakeGLib:
     @staticmethod
-    def idle_add(callback, *args):
+    def idle_add(callback: Callable[..., object], *args: object) -> object:
         return callback(*args)
 
 
@@ -37,7 +38,8 @@ from simple_mqtt import SimpleMqttClient
 
 
 class GridMeterServiceTests(unittest.TestCase):
-    def setUp(self):
+    def setUp(self) -> None:
+        self.meter: mqtt_grid_meter.GridMeterService
         self.meter = mqtt_grid_meter.GridMeterService.__new__(mqtt_grid_meter.GridMeterService)
         self.meter.service = {"/Connected": 0}
         self.meter.last_power_message = 0
@@ -47,13 +49,13 @@ class GridMeterServiceTests(unittest.TestCase):
             "meter/power": (mqtt_grid_meter.POWER_PATH, self.meter._power),
         }
 
-    def test_retained_power_does_not_connect_meter(self):
+    def test_retained_power_does_not_connect_meter(self) -> None:
         self.meter._on_mqtt_message("meter/power", "-5000", retained=True)
 
         self.assertEqual(self.meter.service["/Connected"], 0)
         self.assertNotIn(mqtt_grid_meter.POWER_PATH, self.meter.service)
 
-    def test_fresh_total_power_connects_meter(self):
+    def test_fresh_total_power_connects_meter(self) -> None:
         with mock.patch.object(mqtt_grid_meter, "GLib", FakeGLib):
             self.meter._on_mqtt_message("meter/power", "-5000", retained=False)
 
@@ -61,13 +63,13 @@ class GridMeterServiceTests(unittest.TestCase):
         self.assertEqual(self.meter.service[mqtt_grid_meter.POWER_PATH], -5000)
         self.assertGreater(self.meter.last_power_message, 0)
 
-    def test_auxiliary_value_does_not_connect_meter(self):
+    def test_auxiliary_value_does_not_connect_meter(self) -> None:
         self.meter._update_value("/Ac/Frequency", 50.0)
 
         self.assertEqual(self.meter.service["/Connected"], 0)
         self.assertEqual(self.meter.last_power_message, 0)
 
-    def test_stale_power_invalidates_instantaneous_values(self):
+    def test_stale_power_invalidates_instantaneous_values(self) -> None:
         self.meter.service.update((path, 1) for path in mqtt_grid_meter.INSTANTANEOUS_PATHS)
         self.meter.service["/Connected"] = 1
         self.meter.last_power_message = 100
@@ -80,7 +82,7 @@ class GridMeterServiceTests(unittest.TestCase):
         for path in mqtt_grid_meter.INSTANTANEOUS_PATHS:
             self.assertIsNone(self.meter.service[path])
 
-    def test_non_finite_values_are_rejected(self):
+    def test_non_finite_values_are_rejected(self) -> None:
         for payload in ("nan", "inf", "-inf"):
             with self.subTest(payload=payload):
                 with self.assertRaises(ValueError):
@@ -88,7 +90,7 @@ class GridMeterServiceTests(unittest.TestCase):
 
 
 class SimpleMqttClientTests(unittest.TestCase):
-    def test_decode_publish_reports_retained_flag(self):
+    def test_decode_publish_reports_retained_flag(self) -> None:
         topic = b"meter/power"
         body = struct.pack("!H", len(topic)) + topic + b"-5000"
         client = SimpleMqttClient("localhost", 1883, "test")
