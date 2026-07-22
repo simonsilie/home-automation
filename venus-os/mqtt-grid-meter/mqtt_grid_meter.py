@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import configparser
+import math
 import os
 import signal
 import sys
@@ -16,7 +17,22 @@ from vedbus import VeDbusService
 from simple_mqtt import SimpleMqttClient
 
 
-VERSION = "0.1.1"
+VERSION = "0.1.2"
+
+POWER_PATH = "/Ac/Power"
+INSTANTANEOUS_PATHS = (
+    POWER_PATH,
+    "/Ac/Frequency",
+    "/Ac/L1/Power",
+    "/Ac/L1/Voltage",
+    "/Ac/L1/Current",
+    "/Ac/L2/Power",
+    "/Ac/L2/Voltage",
+    "/Ac/L2/Current",
+    "/Ac/L3/Power",
+    "/Ac/L3/Voltage",
+    "/Ac/L3/Current",
+)
 
 
 class GridMeterService:
@@ -24,8 +40,8 @@ class GridMeterService:
         self.config = config
         self.topic_prefix = config.get("mqtt", "topic_prefix", fallback="electric-meter-ir").strip("/")
         self.power_multiplier = config.getfloat("grid_meter", "power_multiplier", fallback=1.0)
-        self.stale_seconds = config.getint("grid_meter", "stale_seconds", fallback=90)
-        self.last_message = 0
+        self.stale_seconds = config.getint("grid_meter", "stale_seconds", fallback=20)
+        self.last_power_message = 0
         self.stop_event = threading.Event()
 
         dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
@@ -41,7 +57,7 @@ class GridMeterService:
         print("mqtt-grid-meter {} starting with delayed D-Bus registration".format(VERSION), flush=True)
         signal.signal(signal.SIGTERM, self._stop)
         signal.signal(signal.SIGINT, self._stop)
-        GLib.timeout_add_seconds(10, self._check_stale)
+        GLib.timeout_add_seconds(1, self._check_stale)
         thread = threading.Thread(target=self._mqtt_worker, name="mqtt-worker")
         thread.daemon = True
         thread.start()
@@ -100,10 +116,9 @@ class GridMeterService:
                 client = self._new_mqtt_client()
                 client.connect()
                 client.subscribe("%s/#" % self.topic_prefix)
-                GLib.idle_add(self._set_connected, 1)
                 client.loop_forever(self._on_mqtt_message, self.stop_event)
             except Exception as exc:
-                GLib.idle_add(self._set_connected, 0)
+                GLib.idle_add(self._invalidate_meter)
                 print("MQTT connection failed: %s" % exc, flush=True)
                 self.stop_event.wait(10)
             finally:
@@ -119,8 +134,11 @@ class GridMeterService:
         client_id = "venus-mqtt-grid-meter-%s" % os.uname().nodename
         return SimpleMqttClient(host, port, client_id, username, password, keepalive)
 
-    def _on_mqtt_message(self, topic, payload):
+    def _on_mqtt_message(self, topic, payload, retained):
         if topic not in self.topic_map:
+            return
+        if retained:
+            print("Ignoring retained MQTT payload on %s" % topic, flush=True)
             return
         path, converter = self.topic_map[topic]
         try:
@@ -132,17 +150,21 @@ class GridMeterService:
 
     def _update_value(self, path, value):
         self.service[path] = value
-        self.last_message = time.time()
-        self.service["/Connected"] = 1
+        if path == POWER_PATH:
+            self.last_power_message = time.time()
+            self.service["/Connected"] = 1
         return False
 
-    def _set_connected(self, value):
-        self.service["/Connected"] = value
+    def _invalidate_meter(self):
+        self.service["/Connected"] = 0
+        for path in INSTANTANEOUS_PATHS:
+            self.service[path] = None
         return False
 
     def _check_stale(self):
-        if self.last_message and time.time() - self.last_message > self.stale_seconds:
-            self.service["/Connected"] = 0
+        if self.last_power_message and time.time() - self.last_power_message > self.stale_seconds:
+            self._invalidate_meter()
+            self.last_power_message = 0
         return True
 
     def _stop(self, _signum, _frame):
@@ -150,7 +172,10 @@ class GridMeterService:
         self.mainloop.quit()
 
     def _float(self, payload):
-        return float(str(payload).strip())
+        value = float(str(payload).strip())
+        if not math.isfinite(value):
+            raise ValueError("non-finite meter value")
+        return value
 
     def _power(self, payload):
         return self._float(payload) * self.power_multiplier
