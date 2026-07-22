@@ -1,8 +1,18 @@
 import socket
 import struct
-import time
 import threading
+import time
+from dataclasses import dataclass
 from typing import Callable, Optional, Tuple, Union
+
+
+@dataclass(frozen=True)
+class MqttPublish:
+    topic: str
+    payload: str
+    qos: int
+    packet_id: Optional[int]
+    retained: bool
 
 
 class MqttError(Exception):
@@ -84,10 +94,10 @@ class SimpleMqttClient:
 
             packet_class = packet_type & 0xF0
             if packet_class == 0x30:
-                topic, payload, qos, packet_id, retained = self._decode_publish(packet_type, body)
-                if qos == 1 and packet_id is not None:
-                    self._send_packet(0x40, struct.pack("!H", packet_id))
-                message_callback(topic, payload, retained)
+                publish = self._decode_publish(packet_type, body)
+                if publish.qos == 1 and publish.packet_id is not None:
+                    self._send_packet(0x40, struct.pack("!H", publish.packet_id))
+                message_callback(publish.topic, publish.payload, publish.retained)
             elif packet_class == 0xD0:
                 continue
 
@@ -103,9 +113,7 @@ class SimpleMqttClient:
         if time.time() - self.last_sent >= max(10, self.keepalive // 2):
             self._send_packet(0xC0, b"")
 
-    def _decode_publish(
-        self, packet_type: int, body: bytes
-    ) -> Tuple[str, str, int, Optional[int], bool]:
+    def _decode_publish(self, packet_type: int, body: bytes) -> MqttPublish:
         if len(body) < 2:
             raise MqttError("Short PUBLISH packet")
         topic_length = struct.unpack("!H", body[:2])[0]
@@ -116,9 +124,15 @@ class SimpleMqttClient:
         packet_id = None
         payload_start = topic_end
         if qos:
-            packet_id = struct.unpack("!H", body[topic_end:topic_end + 2])[0]
+            packet_id = struct.unpack("!H", body[topic_end : topic_end + 2])[0]
             payload_start += 2
-        return topic, body[payload_start:].decode("utf-8", errors="replace"), qos, packet_id, retained
+        return MqttPublish(
+            topic=topic,
+            payload=body[payload_start:].decode("utf-8", errors="replace"),
+            qos=qos,
+            packet_id=packet_id,
+            retained=retained,
+        )
 
     def _next_packet_id(self) -> int:
         packet_id = self.packet_id
