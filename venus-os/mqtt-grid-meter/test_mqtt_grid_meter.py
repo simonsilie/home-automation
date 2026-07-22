@@ -34,7 +34,7 @@ vedbus_module.__dict__["VeDbusService"] = object
 sys.modules["vedbus"] = vedbus_module
 
 import mqtt_grid_meter
-from simple_mqtt import SimpleMqttClient
+from simple_mqtt import MqttPublish, SimpleMqttClient
 
 
 class GridMeterServiceTests(unittest.TestCase):
@@ -97,7 +97,10 @@ class SimpleMqttClientTests(unittest.TestCase):
 
         decoded = client._decode_publish(0x31, body)
 
-        self.assertEqual(decoded, ("meter/power", "-5000", 0, None, True))
+        self.assertEqual(
+            decoded,
+            MqttPublish(topic="meter/power", payload="-5000", qos=0, packet_id=None, retained=True),
+        )
 
 
 if __name__ == "__main__":
