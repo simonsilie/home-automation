@@ -1,6 +1,7 @@
 import socket
 import struct
 import time
+from typing import Optional
 
 
 class MqttError(Exception):
@@ -15,9 +16,9 @@ class SimpleMqttClient:
         self.username = username or None
         self.password = password or None
         self.keepalive = int(keepalive)
-        self.sock = None
+        self.sock: Optional[socket.socket] = None
         self.packet_id = 1
-        self.last_sent = 0
+        self.last_sent = 0.0
 
     def connect(self):
         self.close()
@@ -112,19 +113,20 @@ class SimpleMqttClient:
         return packet_id
 
     def _send_packet(self, packet_type, payload):
-        self.sock.sendall(bytes([packet_type]) + self._remaining_length(len(payload)) + payload)
+        self._connected_socket().sendall(bytes([packet_type]) + self._remaining_length(len(payload)) + payload)
         self.last_sent = time.time()
 
     def _read_packet(self, timeout=1):
-        old_timeout = self.sock.gettimeout()
-        self.sock.settimeout(timeout)
+        sock = self._connected_socket()
+        old_timeout = sock.gettimeout()
+        sock.settimeout(timeout)
         try:
             first = self._recv_exact(1)[0]
             remaining = self._read_remaining_length()
             body = self._recv_exact(remaining) if remaining else b""
             return first, body
         finally:
-            self.sock.settimeout(old_timeout)
+            sock.settimeout(old_timeout)
 
     def _read_remaining_length(self):
         multiplier = 1
@@ -139,15 +141,21 @@ class SimpleMqttClient:
                 raise MqttError("Malformed MQTT remaining length")
 
     def _recv_exact(self, length):
+        sock = self._connected_socket()
         chunks = []
         remaining = length
         while remaining:
-            chunk = self.sock.recv(remaining)
+            chunk = sock.recv(remaining)
             if not chunk:
                 raise MqttError("MQTT socket closed")
             chunks.append(chunk)
             remaining -= len(chunk)
         return b"".join(chunks)
+
+    def _connected_socket(self):
+        if self.sock is None:
+            raise MqttError("MQTT socket is not connected")
+        return self.sock
 
     @staticmethod
     def _utf8(value):

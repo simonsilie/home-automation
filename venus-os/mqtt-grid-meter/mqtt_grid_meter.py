@@ -41,7 +41,7 @@ class GridMeterService:
         self.topic_prefix = config.get("mqtt", "topic_prefix", fallback="electric-meter-ir").strip("/")
         self.power_multiplier = config.getfloat("grid_meter", "power_multiplier", fallback=1.0)
         self.stale_seconds = config.getint("grid_meter", "stale_seconds", fallback=20)
-        self.last_power_message = 0
+        self.last_power_message = 0.0
         self.stop_event = threading.Event()
 
         dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
@@ -164,7 +164,7 @@ class GridMeterService:
     def _check_stale(self):
         if self.last_power_message and time.time() - self.last_power_message > self.stale_seconds:
             self._invalidate_meter()
-            self.last_power_message = 0
+            self.last_power_message = 0.0
         return True
 
     def _stop(self, _signum, _frame):
