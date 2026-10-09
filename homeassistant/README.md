@@ -38,6 +38,8 @@ Active packages related to energy:
 
 - [packages/energy_meter_common.yaml](packages/energy_meter_common.yaml) —
   `sensor.grid_power_average` from the IR meter
+- [packages/solar_pv.yaml](packages/solar_pv.yaml) —
+  Combined PV power (`sensor.solar_power_total`) aggregating OpenDTU and the APsystems EZ1-M
 - [packages/ir_heizung_kinderzimmer2_control.yaml](packages/ir_heizung_kinderzimmer2_control.yaml) —
   IR heater on surplus export when battery is full and not discharging
   (SOC ≥ 98.9 %, `sensor.gx_device_dc_batterieleistung` ≤ 0.1 W, export ≥ 300 W;
@@ -83,8 +85,7 @@ reload or restart Home Assistant.
 The dashboard shows in particular:
 
 - current grid power via `sensor.electric_meter_ir_active_power` (and L1–L3)
-- current PV power via `sensor.opendtu_91fd98_ac_power` (the `91fd98` suffix is the
-  OpenDTU inverter serial and must match the inverter configured in OpenDTU; rename it
-  if your inverter has a different serial)
+- combined PV generation via `sensor.solar_power_total`
+- individual PV power via `sensor.opendtu_91fd98_ac_power` (OpenDTU / Hoymiles) and `sensor.ez1_total_power` (APsystems EZ1-M)
 - battery power and SOC from the Cerbo GX
 - battery temperature via `sensor.temperature_battery_temperatur`

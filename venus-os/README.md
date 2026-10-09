@@ -19,6 +19,7 @@ charger and Soyosource GTN limiter are no longer part of this system.
 | --- | --- |
 | [mqtt-grid-meter/](mqtt-grid-meter/) | Expose the ESPHome IR meter as a Victron grid meter on D-Bus via MQTT |
 | [dbus-opendtu-config.example](dbus-opendtu-config.example) | Example configuration for `henne49/dbus-opendtu` to expose OpenDTU/Hoymiles as a PV inverter in Venus OS |
+| [dbus-apsystems-ez1-config.example](dbus-apsystems-ez1-config.example) | Example configuration for `domizei385/dbus-apsystems-ez1` to expose APsystems EZ1-M as a PV inverter in Venus OS |
 
 ## OpenDTU as PV Inverter
 
@@ -96,3 +97,56 @@ dbus-spy
 ```
 
 The Cerbo device list should then show a PV inverter. In VRM it will be counted as AC PV generation, while the existing IR meter continues to provide grid import and export.
+
+## APsystems EZ1-M as PV Inverter
+
+The APsystems EZ1-M microinverter communicates directly over Wi-Fi/Bluetooth without needing an ECU gateway. When **Local Mode** is enabled and set to **Continuously** in the AP EasyPower / APsystems mobile app, it exposes a local REST API on port `8050`.
+
+To integrate it on the Cerbo GX as an additional PV inverter on D-Bus, [domizei385/dbus-apsystems-ez1](https://github.com/domizei385/dbus-apsystems-ez1) can be deployed alongside `dbus-opendtu`.
+
+### Data Flow
+
+```text
+APsystems EZ1-M -> local REST API (:8050) -> Cerbo GX dbus-apsystems-ez1 -> Venus OS / VRM PV-Inverter
+```
+
+### Pre-Check
+
+From the Cerbo or another computer on the local network:
+
+```sh
+curl --fail --max-time 5 http://EZ1_IP:8050/getOutputData
+```
+
+Ensure a valid JSON response with `p1`, `p2`, `te1`, and `te2` is returned.
+
+### Install on the Cerbo
+
+```sh
+ssh root@CERBO_IP
+cd /data
+wget https://github.com/domizei385/dbus-apsystems-ez1/archive/refs/heads/main.zip
+unzip main.zip && mv dbus-apsystems-ez1-main dbus-apsystems-ez1 && rm main.zip
+cd /data/dbus-apsystems-ez1
+cp /path/to/dbus-apsystems-ez1-config.example config.ini # or configure manually based on dbus-apsystems-ez1-config.example
+vi config.ini
+chmod a+x install.sh
+./install.sh
+```
+
+### Configuration Notes
+
+- `Address`: IP address of the EZ1-M (assign a static DHCP reservation in your router).
+- `Port`: `8050`.
+- `Deviceinstance`: Set to `52` (must not collide with `40` for grid meter, or `50`/`51` for OpenDTU).
+- `Phase`: Set to the physical phase (`L1`, `L2`, or `L3`) where the microinverter feeds in.
+- `Position`: Set `0` for AC-input / grid side (standard).
+- `CustomName`: `APsystems EZ1-M`.
+
+### Checks
+
+```sh
+svstat /service/dbus-apsystems-ez1
+tail -F /data/dbus-apsystems-ez1/current.log
+dbus-spy
+```

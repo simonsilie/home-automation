@@ -1,0 +1,34 @@
+[DEFAULT]
+# APsystems EZ1-M Microinverter D-Bus configuration for Venus OS / Cerbo GX
+# Used with dbus-apsystems-ez1 (https://github.com/domizei385/dbus-apsystems-ez1)
+
+# IP address or hostname of the APsystems EZ1-M inverter
+Address=EZ1_IP
+
+# Port for local HTTP API (continuous local mode enabled via Bluetooth app)
+Port=8050
+
+# Logger/Inverter serial number
+Serial=YOUR_EZ1_SERIAL
+
+# Phase where the microinverter is feeding in (L1, L2, or L3)
+Phase=L1
+
+# Unique device instance in Venus OS.
+# Reserved in this repo: 40 (mqtt-grid-meter), 50 (OpenDTU HM800), 51 (OpenDTU HM600)
+Deviceinstance=52
+
+# Display name in Venus OS / Remote Console
+CustomName=APsystems EZ1-M
+
+# Inverter AC position:
+# 0 = AC input 1 (grid side, typical)
+# 1 = AC output (critical load / island side)
+# 2 = AC input 2
+Position=0
+
+# Polling interval in seconds (default: 60)
+UpdateInterval=60
+
+# Status log heartbeat interval in minutes
+SignOfLifeLog=300
