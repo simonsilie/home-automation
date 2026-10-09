@@ -46,13 +46,31 @@ views:
               red: 500
           - type: gauge
             entity: sensor.opendtu_91fd98_ac_power
-            name: PV-Leistung
+            name: PV Hoymiles (OpenDTU)
             min: 0
             max: 3000
             severity:
               green: 0
               yellow: 1200
               red: 2400
+          - type: gauge
+            entity: sensor.ez1_total_power
+            name: PV APsystems EZ1-M
+            min: 0
+            max: 1000
+            severity:
+              green: 0
+              yellow: 600
+              red: 800
+          - type: gauge
+            entity: sensor.solar_power_total
+            name: PV-Gesamtleistung
+            min: 0
+            max: 4000
+            severity:
+              green: 0
+              yellow: 1500
+              red: 3000
           - type: gauge
             entity: sensor.gx_device_dc_batterieleistung
             name: Batterieleistung
@@ -86,8 +104,12 @@ views:
             name: Netzleistung L3
           - entity: sensor.grid_power_average
             name: Netzleistung Mittelwert
+          - entity: sensor.solar_power_total
+            name: PV Gesamtleistung
           - entity: sensor.opendtu_91fd98_ac_power
-            name: PV-Leistung
+            name: PV Hoymiles (OpenDTU)
+          - entity: sensor.ez1_total_power
+            name: PV APsystems EZ1-M
           - entity: sensor.gx_device_dc_batterieleistung
             name: Batterieleistung
           - entity: sensor.gx_device_dc_batterieladung
@@ -102,8 +124,12 @@ views:
         entities:
           - entity: sensor.electric_meter_ir_active_power
             name: Netz
+          - entity: sensor.solar_power_total
+            name: PV Gesamt
           - entity: sensor.opendtu_91fd98_ac_power
-            name: PV
+            name: PV Hoymiles
+          - entity: sensor.ez1_total_power
+            name: PV APsystems
           - entity: sensor.gx_device_dc_batterieleistung
             name: Batterie
 

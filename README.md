@@ -25,7 +25,10 @@ flowchart TD
     GridMeter -->|D-Bus grid meter| Cerbo
     Hoymiles[Hoymiles PV\nOpenDTU] -->|REST API| OpenDTU[Cerbo dbus-opendtu]
     OpenDTU -->|D-Bus PV inverter| Cerbo
-    Cerbo -->|VRM / MQTT| HA[Home Assistant]
+    EZ1[APsystems EZ1-M] -->|REST API :8050| DbusEZ1[Cerbo dbus-apsystems-ez1]
+    DbusEZ1 -->|D-Bus PV inverter| Cerbo
+    EZ1 -->|Local API| HA[Home Assistant]
+    Cerbo -->|VRM / MQTT| HA
 ```
 
 Charge/discharge and ESS behaviour are handled by the MultiPlus-II under Venus OS

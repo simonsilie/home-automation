@@ -1,0 +1,19 @@
+# Home Assistant package: solar PV template and aggregation sensors.
+#
+# Aggregates solar generation across the existing Hoymiles (OpenDTU) microinverters
+# and the APsystems EZ1-M microinverter.
+
+template:
+  - sensor:
+      - name: "Solar Power Total"
+        unique_id: solar_power_total
+        unit_of_measurement: "W"
+        device_class: power
+        state_class: measurement
+        state: >
+          {% set opendtu = states('sensor.opendtu_91fd98_ac_power') | float(0) %}
+          {% set ez1 = states('sensor.ez1_total_power') | float(0) %}
+          {{ (opendtu + ez1) | round(1) }}
+        availability: >
+          {{ states('sensor.opendtu_91fd98_ac_power') not in ['unavailable', 'unknown']
+             or states('sensor.ez1_total_power') not in ['unavailable', 'unknown'] }}
