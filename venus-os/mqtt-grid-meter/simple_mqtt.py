@@ -67,8 +67,8 @@ class SimpleMqttClient:
         payload = struct.pack("!H", packet_id) + self._utf8(topic_filter) + bytes([0])
         self._send_packet(0x82, payload)
 
-        deadline = time.time() + 10
-        while time.time() < deadline:
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
             packet_type, body = self._read_packet(timeout=1)
             if packet_type == 0x90 and len(body) >= 3:
                 ack_id = struct.unpack("!H", body[:2])[0]
@@ -110,7 +110,7 @@ class SimpleMqttClient:
         self.sock = None
 
     def _ping_if_needed(self) -> None:
-        if time.time() - self.last_sent >= max(10, self.keepalive // 2):
+        if time.monotonic() - self.last_sent >= max(10, self.keepalive // 2):
             self._send_packet(0xC0, b"")
 
     def _decode_publish(self, packet_type: int, body: bytes) -> MqttPublish:
@@ -143,7 +143,7 @@ class SimpleMqttClient:
 
     def _send_packet(self, packet_type: int, payload: bytes) -> None:
         self._connected_socket().sendall(bytes([packet_type]) + self._remaining_length(len(payload)) + payload)
-        self.last_sent = time.time()
+        self.last_sent = time.monotonic()
 
     def _read_packet(self, timeout: float = 1) -> Tuple[int, bytes]:
         sock = self._connected_socket()
@@ -151,11 +151,17 @@ class SimpleMqttClient:
         sock.settimeout(timeout)
         try:
             first = self._recv_exact(1)[0]
-            remaining = self._read_remaining_length()
-            body = self._recv_exact(remaining) if remaining else b""
+            try:
+                remaining = self._read_remaining_length()
+                body = self._recv_exact(remaining) if remaining else b""
+            except socket.timeout as exc:
+                # Consumed bytes cannot be recovered; reconnect rather than lose packet framing.
+                self.close()
+                raise MqttError("Incomplete MQTT packet: socket timed out") from exc
             return first, body
         finally:
-            sock.settimeout(old_timeout)
+            if self.sock is sock:
+                sock.settimeout(old_timeout)
 
     def _read_remaining_length(self) -> int:
         multiplier = 1

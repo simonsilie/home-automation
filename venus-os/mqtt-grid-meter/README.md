@@ -18,8 +18,17 @@ the meter as valid. Retained MQTT sensor values are ignored, and if total power
 is not updated within `stale_seconds`, `/Connected` is set to `0` and all
 instantaneous AC values are cleared. The default timeout is 20 seconds.
 
+Phase power, voltage, current, and frequency also expire independently after
+`stale_seconds`, even while total power keeps arriving. Energy counters are
+preserved. Freshness is measured from MQTT receipt using a monotonic clock, so
+system clock corrections and delayed main-loop callbacks cannot refresh old samples.
+
 This prevents ESS from continuing to regulate against an old export value after
 the ESPHome meter or MQTT connection fails.
+
+An idle socket timeout leaves the connection open. A timeout midway through an
+MQTT packet closes the connection and triggers reconnection rather than parsing
+the remaining bytes as a new packet.
 
 ## Install On Cerbo GX
 

@@ -23,7 +23,7 @@ PayloadConverter = Callable[[str], float]
 TopicTarget = Tuple[str, PayloadConverter]
 TopicMap = Dict[str, TopicTarget]
 
-VERSION = "0.1.2"
+VERSION = "0.1.3"
 
 POWER_PATH = "/Ac/Power"
 INSTANTANEOUS_PATHS = (
@@ -47,7 +47,7 @@ class GridMeterService:
         self.topic_prefix = config.get("mqtt", "topic_prefix", fallback="electric-meter-ir").strip("/")
         self.power_multiplier = config.getfloat("grid_meter", "power_multiplier", fallback=1.0)
         self.stale_seconds = config.getint("grid_meter", "stale_seconds", fallback=20)
-        self.last_power_message = 0.0
+        self.last_updates: Dict[str, float] = {}
         self.stop_event = threading.Event()
 
         dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
@@ -152,12 +152,16 @@ class GridMeterService:
         except ValueError:
             print("Ignoring non-numeric MQTT payload on %s: %s" % (topic, payload), flush=True)
             return
-        GLib.idle_add(self._update_value, path, value)
+        GLib.idle_add(self._update_value, path, value, time.monotonic())
 
-    def _update_value(self, path: str, value: float) -> bool:
+    def _update_value(self, path: str, value: float, received_at: float) -> bool:
+        if path in INSTANTANEOUS_PATHS:
+            # A busy main loop must not make a queued, old sample fresh again.
+            if time.monotonic() - received_at > self.stale_seconds:
+                return False
+            self.last_updates[path] = received_at
         self.service[path] = value
         if path == POWER_PATH:
-            self.last_power_message = time.time()
             self.service["/Connected"] = 1
         return False
 
@@ -165,12 +169,19 @@ class GridMeterService:
         self.service["/Connected"] = 0
         for path in INSTANTANEOUS_PATHS:
             self.service[path] = None
+        self.last_updates.clear()
         return False
 
     def _check_stale(self) -> bool:
-        if self.last_power_message and time.time() - self.last_power_message > self.stale_seconds:
+        now = time.monotonic()
+        last_power = self.last_updates.get(POWER_PATH)
+        if last_power is not None and now - last_power > self.stale_seconds:
             self._invalidate_meter()
-            self.last_power_message = 0.0
+        else:
+            for path, received_at in list(self.last_updates.items()):
+                if now - received_at > self.stale_seconds:
+                    self.service[path] = None
+                    del self.last_updates[path]
         return True
 
     def _stop(self, _signum: int, _frame: Optional[FrameType]) -> None:
