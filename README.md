@@ -98,7 +98,7 @@ esphome run electric_meter_ir.yaml
 | File | Purpose | Status |
 | --- | --- | --- |
 | [homeassistant/packages/energy_meter_common.yaml](homeassistant/packages/energy_meter_common.yaml) | Shared sensors derived from the grid meter (`sensor.grid_power_average`) | Active |
-| [homeassistant/packages/ir_heizung_kinderzimmer2_control.yaml](homeassistant/packages/ir_heizung_kinderzimmer2_control.yaml) | Enables an IR heater on sustained grid export when battery SOC ≥ 98.9 % and not discharging (turns off below SOC 97 % / on discharge, with hysteresis) | Active |
+| [homeassistant/packages/ir_heizung_kinderzimmer2_control.yaml](homeassistant/packages/ir_heizung_kinderzimmer2_control.yaml) | Opt-in IR heater control after 60 s of export covering configured heater watts + 300 W, with SOC/power interlocks and explicit HVAC off | Active |
 | [homeassistant/packages/waste_collection.yaml](homeassistant/packages/waste_collection.yaml) | Waste collection schedule (HACS integration, ICS source) | Active |
 | [homeassistant/packages/rd6030_battery_surplus_charge.yaml](homeassistant/packages/rd6030_battery_surplus_charge.yaml) | Surplus charging via RD6030W | Retired |
 | [homeassistant/packages/soyosource_feed_in_control.yaml](homeassistant/packages/soyosource_feed_in_control.yaml) | Soyosource feed-in control | Retired |

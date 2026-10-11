@@ -47,9 +47,49 @@ Active packages related to energy:
 - [packages/solar_pv.yaml](packages/solar_pv.yaml) —
   Combined PV power (`sensor.solar_power_total`) aggregating OpenDTU and the APsystems EZ1-M
 - [packages/ir_heizung_kinderzimmer2_control.yaml](packages/ir_heizung_kinderzimmer2_control.yaml) —
-  IR heater on surplus export when battery is full and not discharging
-  (SOC ≥ 98.9 %, `sensor.gx_device_dc_batterieleistung` ≤ 0.1 W, export ≥ 300 W;
-  turns off below SOC 97 % / on discharge, with hysteresis)
+  Opt-in IR heater control with sustained export, explicit HVAC modes, and hysteresis
+
+### IR heater surplus control
+
+1. Set `input_number.ir_kz2_heater_power` to the heater's actual rated watts.
+   A zero or unavailable value blocks automatic heating.
+2. Enable `input_boolean.ir_kz2_surplus_control_enabled`. It starts disabled on
+   every Home Assistant restart, and the nursery thermostat starts in HVAC `off`.
+3. With the thermostat off, all prerequisites must hold continuously for 60 seconds:
+   export exceeds the configured heater power plus a 300 W reserve, SOC is above
+   98.9 %, battery power is ≤ 0 W, and the room temperature is numeric.
+4. The controller then selects HVAC `heat` with a 21.5 °C target. While active,
+   it selects HVAC `off` when export falls to 100 W or less, SOC drops below 97 %,
+   battery power becomes positive, or a required reading becomes non-numeric.
+   Shutdown no longer relies on a 7 °C frost-protection target.
+
+The larger startup threshold accounts for the heater's own consumption; the
+separate shutdown threshold avoids immediately undoing that startup. Disabling
+surplus control switches the thermostat off once, then leaves manual mode and
+temperature changes alone. No automatic frost protection runs while HVAC is off.
+
+The control switch and rated-power helper are exposed in the energy dashboard's
+"Energie Diagnose" card. Deploy both the updated package and `climate.yaml`,
+then restart Home Assistant to remove the previous standalone shutdown automation.
+
+**Battery polarity still requires verification:** this package preserves the
+existing assumption that positive battery power means discharge. Confirm the HA
+entity's convention before enabling the controller. Numeric-state checks do not
+prove sensor freshness or provide an actuator watchdog during a Home Assistant
+outage; independent heater safety remains necessary.
+
+### Offline heater regression checks
+
+With PyYAML and Jinja2 available in the development Python environment, run:
+
+```sh
+python -m unittest discover -s homeassistant/tests -v
+yamllint homeassistant
+```
+
+These tests render the actual package templates and check action selection,
+thresholds, configured dwell time, and opt-in defaults. They do not simulate the
+Home Assistant scheduler, custom integrations, or physical thermostat/relay.
 
 ### Retired packages (RD6030 / Soyosource)
 
