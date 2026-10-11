@@ -6,7 +6,12 @@ script: !include scripts.yaml
 scene: !include scenes.yaml
 
 homeassistant:
-  packages: !include_dir_named packages
+  # Explicit includes keep retired hardware controllers unloaded.
+  packages:
+    energy_meter_common: !include packages/energy_meter_common.yaml
+    solar_pv: !include packages/solar_pv.yaml
+    ir_heizung_kinderzimmer2_control: !include packages/ir_heizung_kinderzimmer2_control.yaml
+    waste_collection: !include packages/waste_collection.yaml
 
 lovelace:
   dashboards:
