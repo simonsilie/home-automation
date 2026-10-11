@@ -60,6 +60,12 @@ automation:
       - platform: time_pattern
         seconds: "/30"
     condition:
+      # Periodic triggers must also satisfy the shutdown criteria.
+      - condition: template
+        value_template: >
+          {{ states('sensor.grid_power_average') | float(0) >= -300
+             or states('sensor.gx_device_dc_batterieladung') | float(0) < 97
+             or states('sensor.gx_device_dc_batterieleistung') | float(0) > 0 }}
       - condition: template
         value_template: >
           {{ state_attr('climate.ir_heizung_kinderzimmer_2', 'temperature') | float(0) != 7.0 }}

@@ -7,15 +7,21 @@ This directory mirrors a complete Home Assistant config directory: the versioned
 
 ## Setup
 
-Packages are loaded via `configuration.yaml`:
+Active packages are explicitly loaded via `configuration.yaml`:
 
 ```yaml
 homeassistant:
-  packages: !include_dir_named packages
+  packages:
+    energy_meter_common: !include packages/energy_meter_common.yaml
+    solar_pv: !include packages/solar_pv.yaml
+    ir_heizung_kinderzimmer2_control: !include packages/ir_heizung_kinderzimmer2_control.yaml
+    waste_collection: !include packages/waste_collection.yaml
 ```
 
-Copy the desired files from [packages/](packages/) into the `packages/` folder of the
-active config directory, then reload or restart Home Assistant.
+Copy these files from [packages/](packages/) into the `packages/` folder of the
+active config directory and use the explicit includes above, then restart Home Assistant.
+The retired RD6030 and Soyosource packages can remain in the folder for reference;
+they are not loaded unless explicitly included. Add an include when installing a new package.
 
 One secret is required in the active `secrets.yaml`: `waste_ics_url` (ICS calendar URL)
 for [packages/waste_collection.yaml](packages/waste_collection.yaml).
