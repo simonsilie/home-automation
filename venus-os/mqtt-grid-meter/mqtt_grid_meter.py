@@ -4,6 +4,7 @@ import configparser
 import math
 import os
 import signal
+import ssl
 import sys
 import threading
 import time
@@ -133,12 +134,18 @@ class GridMeterService:
 
     def _new_mqtt_client(self) -> SimpleMqttClient:
         host = self.config.get("mqtt", "host")
-        port = self.config.getint("mqtt", "port", fallback=1883)
+        tls = self.config.getboolean("mqtt", "tls", fallback=False)
+        port = self.config.getint("mqtt", "port", fallback=8883 if tls else 1883)
+        ssl_context = None
+        if tls:
+            ca_file = self.config.get("mqtt", "ca_file", fallback="").strip() or None
+            ssl_context = ssl.create_default_context(cafile=ca_file)
+            ssl_context.minimum_version = ssl.TLSVersion.TLSv1_2
         username = self.config.get("mqtt", "username", fallback="").strip() or None
         password = self.config.get("mqtt", "password", fallback="").strip() or None
         keepalive = self.config.getint("mqtt", "keepalive", fallback=60)
         client_id = "venus-mqtt-grid-meter-%s" % os.uname().nodename
-        return SimpleMqttClient(host, port, client_id, username, password, keepalive)
+        return SimpleMqttClient(host, port, client_id, username, password, keepalive, ssl_context=ssl_context)
 
     def _on_mqtt_message(self, topic: str, payload: str, retained: bool) -> None:
         if topic not in self.topic_map:

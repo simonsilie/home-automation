@@ -1,4 +1,5 @@
 import socket
+import ssl
 import threading
 import unittest
 from typing import List, Optional, Union
@@ -6,6 +7,137 @@ from unittest import mock
 
 import simple_mqtt
 from simple_mqtt import MqttError, SimpleMqttClient
+
+
+class SimpleMqttTlsTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.raw_sock = mock.Mock(spec=socket.socket)
+        self.tls_sock = mock.Mock(spec=ssl.SSLSocket)
+        for sock in (self.raw_sock, self.tls_sock):
+            sock.gettimeout.return_value = 1
+            sock.recv.side_effect = [b"\x20", b"\x02", b"\x00\x00"]
+        self.context = mock.Mock(spec=ssl.SSLContext)
+        self.context.check_hostname = True
+        self.context.verify_mode = ssl.CERT_REQUIRED
+        self.context.minimum_version = ssl.TLSVersion.TLSv1_2
+        self.context.wrap_socket.return_value = self.tls_sock
+        patcher = mock.patch.object(simple_mqtt.socket, "create_connection", return_value=self.raw_sock)
+        self.create_connection = patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_plaintext_remains_the_default(self) -> None:
+        client = SimpleMqttClient("localhost", "1883", "test", "user", "password")
+
+        client.connect()
+
+        self.assertIsNone(client.ssl_context)
+        self.create_connection.assert_called_once_with(("localhost", 1883), timeout=15)
+        self.assertIs(client.sock, self.raw_sock)
+        self.raw_sock.sendall.assert_called_once()
+        self.raw_sock.close.assert_not_called()
+        self.context.wrap_socket.assert_not_called()
+
+    def test_verified_handshake_precedes_credentials_and_uses_broker_hostname(self) -> None:
+        client = SimpleMqttClient("broker.example.com", 8883, "test", "user", "password", ssl_context=self.context)
+
+        def wrap(sock: socket.socket, server_hostname: str) -> ssl.SSLSocket:
+            self.assertIs(sock, self.raw_sock)
+            self.assertEqual(server_hostname, "broker.example.com")
+            self.raw_sock.sendall.assert_not_called()
+            self.tls_sock.sendall.assert_not_called()
+            return self.tls_sock
+
+        self.context.wrap_socket.side_effect = wrap
+        client.connect()
+
+        self.create_connection.assert_called_once_with(("broker.example.com", 8883), timeout=15)
+        self.context.wrap_socket.assert_called_once_with(self.raw_sock, server_hostname="broker.example.com")
+        self.assertIs(client.sock, self.tls_sock)
+        self.tls_sock.sendall.assert_called_once()
+        connect_packet = self.tls_sock.sendall.call_args.args[0]
+        self.assertEqual(connect_packet[0], 0x10)
+        self.assertIn(client._utf8("user") + client._utf8("password"), connect_packet)
+        self.raw_sock.sendall.assert_not_called()
+        self.raw_sock.recv.assert_not_called()
+        client.close()
+        self.tls_sock.close.assert_called_once_with()
+        self.raw_sock.close.assert_not_called()
+        self.assertIsNone(client.sock)
+
+    def test_tls_minimum_is_at_least_1_2(self) -> None:
+        self.context.minimum_version = ssl.TLSVersion.MINIMUM_SUPPORTED
+        client = SimpleMqttClient("broker.example.com", 8883, "test", ssl_context=self.context)
+
+        client.connect()
+
+        self.assertEqual(self.context.minimum_version, ssl.TLSVersion.TLSv1_2)
+
+    def test_stronger_tls_minimum_is_not_downgraded(self) -> None:
+        self.context.minimum_version = ssl.TLSVersion.TLSv1_3
+        client = SimpleMqttClient("broker.example.com", 8883, "test", ssl_context=self.context)
+
+        client.connect()
+
+        self.assertEqual(self.context.minimum_version, ssl.TLSVersion.TLSv1_3)
+
+    def test_unverified_contexts_are_rejected_before_opening_socket(self) -> None:
+        for check_hostname, verify_mode in ((False, ssl.CERT_REQUIRED), (True, ssl.CERT_NONE)):
+            with self.subTest(check_hostname=check_hostname, verify_mode=verify_mode):
+                self.context.check_hostname = check_hostname
+                self.context.verify_mode = verify_mode
+                client = SimpleMqttClient("broker.example.com", 8883, "test", ssl_context=self.context)
+
+                with self.assertRaisesRegex(ValueError, "certificate and hostname verification"):
+                    client.connect()
+
+                self.create_connection.assert_not_called()
+                self.context.wrap_socket.assert_not_called()
+                self.assertIsNone(client.sock)
+
+    def test_handshake_failure_closes_raw_socket_without_sending_credentials(self) -> None:
+        for error in (ssl.SSLCertVerificationError("untrusted certificate"), ssl.SSLError("handshake failed")):
+            with self.subTest(error=type(error).__name__):
+                self.raw_sock.reset_mock()
+                self.context.wrap_socket.reset_mock()
+                self.context.wrap_socket.side_effect = error
+                client = SimpleMqttClient(
+                    "broker.example.com", 8883, "test", "user", "password", ssl_context=self.context
+                )
+
+                with self.assertRaises(type(error)) as raised:
+                    client.connect()
+
+                self.assertIs(raised.exception, error)
+                self.context.wrap_socket.assert_called_once_with(self.raw_sock, server_hostname="broker.example.com")
+                self.raw_sock.close.assert_called_once_with()
+                self.raw_sock.sendall.assert_not_called()
+                self.tls_sock.sendall.assert_not_called()
+                self.assertIsNone(client.sock)
+
+    def test_close_error_does_not_mask_handshake_failure(self) -> None:
+        error = ssl.SSLError("handshake failed")
+        self.context.wrap_socket.side_effect = error
+        self.raw_sock.close.side_effect = OSError("close failed")
+        client = SimpleMqttClient("broker.example.com", 8883, "test", ssl_context=self.context)
+
+        with self.assertRaises(ssl.SSLError) as raised:
+            client.connect()
+
+        self.assertIs(raised.exception, error)
+        self.raw_sock.close.assert_called_once_with()
+        self.assertIsNone(client.sock)
+
+    def test_timeout_setup_failure_closes_wrapped_socket(self) -> None:
+        self.tls_sock.settimeout.side_effect = OSError("timeout setup failed")
+        client = SimpleMqttClient("broker.example.com", 8883, "test", ssl_context=self.context)
+
+        with self.assertRaisesRegex(OSError, "timeout setup failed"):
+            client.connect()
+
+        self.tls_sock.close.assert_called_once_with()
+        self.raw_sock.sendall.assert_not_called()
+        self.tls_sock.sendall.assert_not_called()
+        self.assertIsNone(client.sock)
 
 
 class SimpleMqttFramingTests(unittest.TestCase):

@@ -64,18 +64,25 @@ MultiPlus-II + Pylontech ESS):
 | --- | --- | --- | --- |
 | [esphome/electric_meter_ir.yaml](esphome/electric_meter_ir.yaml) | ESP8266 (D1 mini) + Hichi IR read head | Read the SML meter via UART, expose OBIS values as HA sensors / MQTT | Active |
 | [esphome/riden-psu.yaml](esphome/riden-psu.yaml) | ESP8266 (Riden WiFi dongle / ESP-12F) + Modbus RTU | RD60xx power supply control | Retired |
-| [esphome/soyosource-victron-esp32.yaml](esphome/soyosource-victron-esp32.yaml) | ESP32 + MAX485 + VE.Direct | Soyosource limiter + MPPT/Shunt telemetry | Retired (needs the vendored external components above) |
+| [esphome/soyosource-victron-esp32.yaml](esphome/soyosource-victron-esp32.yaml) | ESP32 + MAX485 + VE.Direct | Soyosource limiter + MPPT/Shunt telemetry | Retired (uses pinned external components) |
 
 Shared blocks (WiFi, API, OTA, web server) live in
 [esphome/common/base.yaml](esphome/common/base.yaml) and are pulled into each device
 config via `packages: base: !include common/base.yaml`.
 
 External components used by active configs: none beyond stock ESPHome (SML meter).
-Retired configs additionally referenced (and vendored under `esphome/.esphome/external_components/`,
-pulled in by `soyosource-victron-esp32.yaml` with `refresh: 0s`, so they are not fetched live):
+The retired Soyosource config additionally uses external components pinned to
+full Git commit hashes, with `refresh: never`:
 
 - [syssi/esphome-soyosource-gtn-virtual-meter](https://github.com/syssi/esphome-soyosource-gtn-virtual-meter)
 - [KinDR007/VictronMPPT-ESPHOME](https://github.com/KinDR007/VictronMPPT-ESPHOME)
+
+These are **not vendored**. A clean checkout downloads the pinned revisions into
+the ignored `esphome/.esphome/` cache; `refresh: never` prevents subsequent updates,
+not the initial download. The hashes identify upstream snapshots selected on
+2026-10-11, not revisions recovered from the formerly deployed firmware. Review
+and test retired hardware before reactivation. Firmware tooling is pinned to
+ESPHome 2026.9.1 in `pyproject.toml` / `uv.lock`.
 
 `riden-psu.yaml` was *inspired by* [morgendagen/riden-dongle](https://github.com/morgendagen/riden-dongle)
 but uses only stock ESPHome `modbus_controller` and does not depend on that external component.
@@ -84,14 +91,67 @@ but uses only stock ESPHome `modbus_controller` and does not depend on that exte
 
 Create `esphome/secrets.yaml` from
 [esphome/secrets.yaml.example](esphome/secrets.yaml.example) and fill it in
-(WiFi, OTA, API key, MQTT for the IR meter).
+(WiFi, OTA, a separate fallback AP password, API key, web credentials, and MQTT
+for the IR meter). Existing secret files need `fallback_ap_password`,
+`web_server_username`, and `web_server_password` before the next firmware build.
 
 ### Flashing
 
+From the repository root:
+
 ```sh
-cd esphome
-esphome run electric_meter_ir.yaml
+uv sync --locked --group firmware --python 3.12
+uv run --locked --group firmware esphome run esphome/electric_meter_ir.yaml
 ```
+
+Use the actual secret file and review the config before flashing; the validation
+fixture below is public dummy data and must never be flashed.
+
+### Network security
+
+- The shared HTTP interface requires Digest authentication, and web OTA is disabled
+  on the normal interface. Digest does **not** encrypt readings or commands; restrict
+  access to a trusted IoT LAN. Use `curl --digest` for authenticated REST requests.
+- Native API encryption and password-protected native OTA remain enabled. The
+  fallback AP uses a separate password; captive-portal recovery still permits web
+  OTA when that AP is active. Do not expose device interfaces to the internet.
+- Stock ESPHome MQTT TLS is supported on ESP32, **not this ESP8266 meter**. Its
+  MQTT credentials/readings still traverse plaintext port 1883. Isolate that hop
+  using a dedicated IoT network, broker-bound LAN listener, and firewall rules;
+  disable anonymous access and use a dedicated topic-restricted meter account.
+  Device MQTT discovery is disabled, so use its known address for OTA/log access.
+- The Cerbo bridge supports verified TLS independently; configure the broker's
+  TLS listener and CA before enabling it. See
+  [the transport and ACL notes](venus-os/mqtt-grid-meter/README.md#mqtt-transport-and-broker-security).
+  Encrypting this hop does not secure the preceding plaintext meter hop.
+
+## Development and CI
+
+The deployed bridge still supports Python 3.8 and requires no pip runtime packages
+beyond the Venus OS-provided D-Bus modules. Development and firmware tools use
+Python 3.12–3.14 in separate dependency groups, with exact direct versions and
+transitive hashes in `uv.lock`:
+
+```sh
+uv sync --locked --python 3.12
+uv run --locked ruff check venus-os/mqtt-grid-meter homeassistant/tests tools tests
+uv run --locked ruff format --check venus-os/mqtt-grid-meter homeassistant/tests tools tests
+uv run --locked pyrefly check
+uv run --locked pytest
+uv run --locked yamllint homeassistant esphome .github
+uv run --locked --group firmware python tools/validate_esphome.py
+```
+
+The firmware check copies only tracked config/example files to a temporary directory,
+uses dummy credentials, and runs `esphome config` without reading real secrets or
+flashing hardware. Pass tracked device filenames to check retired configurations too.
+Build/compile checks still require platform toolchains and are separate from schema
+validation. First-time tool installation and external-component validation download
+public packages/source from PyPI/GitHub.
+
+[CI](.github/workflows/checks.yaml) runs these checks plus the bridge tests on Python
+3.8 without development packages. GitHub Actions are pinned to commit hashes.
+Intentional tool upgrades should update `pyproject.toml` and regenerate `uv.lock`.
 
 ## Home Assistant
 

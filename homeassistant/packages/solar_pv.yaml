@@ -11,9 +11,13 @@ template:
         device_class: power
         state_class: measurement
         state: >
-          {% set opendtu = states('sensor.opendtu_91fd98_ac_power') | float(0) %}
-          {% set ez1 = states('sensor.ez1_total_power') | float(0) %}
-          {{ (opendtu + ez1) | round(1) }}
+          {% set opendtu = states('sensor.opendtu_91fd98_ac_power') %}
+          {% set ez1 = states('sensor.ez1_total_power') %}
+          {% if is_number(opendtu) and is_number(ez1) %}
+            {{ (opendtu | float + ez1 | float) | round(1) }}
+          {% else %}
+            {{ none }}
+          {% endif %}
         availability: >
-          {{ states('sensor.opendtu_91fd98_ac_power') not in ['unavailable', 'unknown']
-             or states('sensor.ez1_total_power') not in ['unavailable', 'unknown'] }}
+          {{ is_number(states('sensor.opendtu_91fd98_ac_power'))
+             and is_number(states('sensor.ez1_total_power')) }}
