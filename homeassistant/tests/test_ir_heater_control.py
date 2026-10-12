@@ -72,7 +72,7 @@ class HeaterControlTests(unittest.TestCase):
         return self.render(self.sensors["ir_kz2_surplus_stop"]["state"])
 
     def decision(self, trigger_id: str = "periodic") -> Optional[Dict[str, Any]]:
-        branches = self.package["automation"][0]["action"][0]["choose"]
+        branches = self.package["automation"][0]["actions"][0]["choose"]
         matches = [branch for branch in branches if self.render(branch["conditions"], trigger_id)]
         self.assertLessEqual(len(matches), 1, "Control branches must not compete")
         return matches[0]["sequence"][0] if matches else None
@@ -148,14 +148,14 @@ class HeaterControlTests(unittest.TestCase):
         self.assertIsNone(self.decision(), "Raw surplus must not bypass the delayed binary sensor")
         self.states[READY] = "on"
         action = self.required_action()
-        self.assertEqual(action["service"], "climate.set_temperature")
+        self.assertEqual(action["action"], "climate.set_temperature")
         self.assertEqual(action["data"], {"hvac_mode": "heat", "temperature": 21.5})
         self.assertEqual(action["target"], {"entity_id": CLIMATE})
 
     def test_stop_explicitly_selects_off_even_with_old_ready_state(self) -> None:
         self.states.update({CLIMATE: "heat", STOP: "on", READY: "on"})
         action = self.required_action()
-        self.assertEqual(action["service"], "climate.set_hvac_mode")
+        self.assertEqual(action["action"], "climate.set_hvac_mode")
         self.assertEqual(action["data"], {"hvac_mode": "off"})
         self.states[STOP] = "unavailable"
         self.assertEqual(self.required_action()["data"], {"hvac_mode": "off"})
@@ -176,7 +176,7 @@ class HeaterControlTests(unittest.TestCase):
         automation = self.package["automation"][0]
         self.assertEqual(len(self.package["automation"]), 1)
         self.assertTrue(
-            any(t.get("platform") == "time_pattern" and t.get("seconds") == "/30" for t in automation["trigger"])
+            any(t.get("trigger") == "time_pattern" and t.get("seconds") == "/30" for t in automation["triggers"])
         )
 
 

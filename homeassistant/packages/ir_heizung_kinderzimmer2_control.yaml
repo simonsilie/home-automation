@@ -58,30 +58,30 @@ automation:
   - id: ir_kz2_surplus_einschalten
     alias: "IR-Heizung Kinderzimmer 2 Ueberschussregelung"
     mode: single
-    trigger:
-      - platform: state
+    triggers:
+      - trigger: state
         entity_id: binary_sensor.ir_kz2_surplus_ready
         to: "on"
-      - platform: state
+      - trigger: state
         entity_id: binary_sensor.ir_kz2_surplus_stop
         to: "on"
-      - platform: state
+      - trigger: state
         entity_id: input_boolean.ir_kz2_surplus_control_enabled
         id: control_toggle
-      - platform: state
+      - trigger: state
         entity_id: climate.ir_heizung_kinderzimmer_2
-      - platform: homeassistant
+      - trigger: homeassistant
         event: start
-      - platform: time_pattern
+      - trigger: time_pattern
         seconds: "/30"
-    action:
+    actions:
       - choose:
           # Toggle transitions switch off once; enabling must qualify from HVAC off.
           - conditions: >
               {{ trigger.id == 'control_toggle'
                  and states('input_boolean.ir_kz2_surplus_control_enabled') in ['on', 'off'] }}
             sequence:
-              - service: climate.set_hvac_mode
+              - action: climate.set_hvac_mode
                 target:
                   entity_id: climate.ir_heizung_kinderzimmer_2
                 data:
@@ -92,7 +92,7 @@ automation:
                  and not is_state('binary_sensor.ir_kz2_surplus_stop', 'off')
                  and is_state('climate.ir_heizung_kinderzimmer_2', 'heat') }}
             sequence:
-              - service: climate.set_hvac_mode
+              - action: climate.set_hvac_mode
                 target:
                   entity_id: climate.ir_heizung_kinderzimmer_2
                 data:
@@ -104,7 +104,7 @@ automation:
                  and is_state('binary_sensor.ir_kz2_surplus_ready', 'on')
                  and is_state('climate.ir_heizung_kinderzimmer_2', 'off') }}
             sequence:
-              - service: climate.set_temperature
+              - action: climate.set_temperature
                 target:
                   entity_id: climate.ir_heizung_kinderzimmer_2
                 data:
