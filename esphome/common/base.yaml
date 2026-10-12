@@ -3,7 +3,8 @@
 #
 # Expects these substitutions in the including device config: device_name
 # Expects these secrets in secrets.yaml:
-#   wifi_ssid, wifi_password, api_encryption_key, ota_password
+#   wifi_ssid, wifi_password, api_encryption_key, ota_password,
+#   fallback_ap_password, web_server_username, web_server_password
 
 wifi:
   ssid: !secret wifi_ssid
@@ -13,7 +14,7 @@ wifi:
     # SSID max. 32 characters (ESP8266/ESP32 AP limit) - " Fallback" does not fit
     # for the longest device name (soyosource-victron-esp32 = 24 chars).
     ssid: "${device_name} Setup"
-    password: !secret ota_password
+    password: !secret fallback_ap_password
 
 captive_portal:
 
@@ -27,3 +28,8 @@ ota:
 
 web_server:
   port: 80
+  ota: false
+  auth:
+    type: digest
+    username: !secret web_server_username
+    password: !secret web_server_password

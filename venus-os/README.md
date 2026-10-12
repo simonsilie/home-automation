@@ -2,6 +2,12 @@
 
 This directory contains services and notes for the Cerbo GX.
 
+Upstream installation examples below use full commit hashes rather than mutable
+branches/latest-release lookups. These pin downloaded source only; upstream
+installers may fetch additional dependencies. Review those installers and record
+installed versions before a deployment or upgrade. The pins are not evidence of
+which version is already deployed on your GX.
+
 ## Hardware context
 
 The live ESS on this GX is:
@@ -51,7 +57,8 @@ The upstream documentation often uses `/data/dbus-opendtu`. Installing under `/d
 ssh root@CERBO_IP
 mkdir -p /data/etc
 cd /data/etc
-wget -O main.zip https://github.com/henne49/dbus-opendtu/archive/refs/tags/$(curl -s https://api.github.com/repos/henne49/dbus-opendtu/releases/latest | grep "tag_name" | cut -d '"' -f 4).zip
+# Pinned source snapshot of upstream v2.1.0.
+wget -O main.zip https://github.com/henne49/dbus-opendtu/archive/11545e96ac618d61ee5d3455e40dc4b1979e9634.zip
 mkdir dbus-opendtu-tmp
 unzip main.zip -d dbus-opendtu-tmp
 mv dbus-opendtu-tmp/* dbus-opendtu
@@ -125,8 +132,8 @@ Ensure a valid JSON response with `p1`, `p2`, `te1`, and `te2` is returned.
 ```sh
 ssh root@CERBO_IP
 cd /data
-wget https://github.com/domizei385/dbus-apsystems-ez1/archive/refs/heads/main.zip
-unzip main.zip && mv dbus-apsystems-ez1-main dbus-apsystems-ez1 && rm main.zip
+wget -O main.zip https://github.com/domizei385/dbus-apsystems-ez1/archive/593af087097f74331864e65b562497110777f53b.zip
+unzip main.zip && mv dbus-apsystems-ez1-593af087097f74331864e65b562497110777f53b dbus-apsystems-ez1 && rm main.zip
 cd /data/dbus-apsystems-ez1
 cp /path/to/dbus-apsystems-ez1-config.example config.ini # or configure manually based on dbus-apsystems-ez1-config.example
 vi config.ini

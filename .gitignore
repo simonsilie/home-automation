@@ -16,6 +16,7 @@ venus-os/mqtt-grid-meter/config.ini
 .kilo/
 
 # Python
+.venv/
 __pycache__/
 *.pyc
 .pytest_cache/

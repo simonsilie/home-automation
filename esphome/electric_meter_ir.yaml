@@ -30,7 +30,7 @@ substitutions:
 esphome:
   name: ${device_name}
   friendly_name: ${friendly_name}
-  min_version: 2024.6.0
+  min_version: 2026.9.1
   project:
     name: simon.electric-meter-ir
     version: "1.0"
@@ -47,8 +47,11 @@ logger:
   baud_rate: 0
 
 # MQTT feed for Venus OS / Cerbo GX bridge. ESPHome API stays enabled for Home Assistant.
+# ESP8266 MQTT has no stock TLS support; restrict broker access to an isolated IoT LAN.
 mqtt:
   broker: !secret mqtt_broker
+  port: 1883
+  discover_ip: false
   username: !secret mqtt_username
   password: !secret mqtt_password
   topic_prefix: electric-meter-ir

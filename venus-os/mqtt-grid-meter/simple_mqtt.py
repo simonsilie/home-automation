@@ -1,4 +1,5 @@
 import socket
+import ssl
 import struct
 import threading
 import time
@@ -28,6 +29,7 @@ class SimpleMqttClient:
         username: Optional[str] = None,
         password: Optional[str] = None,
         keepalive: Union[int, str] = 60,
+        ssl_context: Optional[ssl.SSLContext] = None,
     ) -> None:
         self.host = host
         self.port = int(port)
@@ -35,14 +37,28 @@ class SimpleMqttClient:
         self.username = username or None
         self.password = password or None
         self.keepalive = int(keepalive)
+        self.ssl_context = ssl_context
         self.sock: Optional[socket.socket] = None
         self.packet_id = 1
         self.last_sent = 0.0
 
     def connect(self) -> None:
         self.close()
+        if self.ssl_context is not None:
+            if not self.ssl_context.check_hostname or self.ssl_context.verify_mode != ssl.CERT_REQUIRED:
+                raise ValueError("MQTT TLS requires certificate and hostname verification")
+            self.ssl_context.minimum_version = max(ssl.TLSVersion.TLSv1_2, self.ssl_context.minimum_version)
+
         self.sock = socket.create_connection((self.host, self.port), timeout=15)
-        self.sock.settimeout(1)
+        try:
+            if self.ssl_context is not None:
+                # wrap_socket completes the verified handshake before any MQTT credentials are sent.
+                self.sock = self.ssl_context.wrap_socket(self.sock, server_hostname=self.host)
+            self.sock.settimeout(1)
+        except Exception:
+            # A failed wrap leaves self.sock pointing to the raw socket.
+            self.close()
+            raise
 
         flags = 0x02
         payload = self._utf8(self.client_id)

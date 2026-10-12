@@ -8,7 +8,96 @@ It is intended for this data flow:
 electric_meter_ir ESPHome -> Home Assistant Mosquitto -> Cerbo GX service -> Venus OS grid meter
 ```
 
-No Node-RED and no Venus OS Large image are required.
+No Node-RED and no Venus OS Large image are required. The Python bridge uses
+only the standard library for MQTT and TLS and is compatible with Python 3.8.
+
+## MQTT Transport and Broker Security
+
+This bridge can use verified TLS for **Cerbo GX -> broker** connections. It does
+not configure Mosquitto or change the ESPHome meter's transport. This is a
+capability and deployment recommendation, not a claim that the deployed broker
+or the ESP8266 connection is secure.
+
+In `[mqtt]`:
+
+- `tls = true` enables TLS, with a default port of `8883` if `port` is omitted.
+  Use a broker DNS hostname matching its certificate's subjectAltName (as in the
+  example config); an IP address works only if the certificate has a matching IP
+  subjectAltName. The hostname is passed as `server_hostname` for verification
+  and SNI. The verified handshake completes before MQTT credentials are sent.
+- `ca_file` is an optional path to a PEM CA file **on the Cerbo GX**. Leave it
+  empty or omit it to use the system CA trust store. For a private broker CA,
+  provision the trusted CA file separately and set, for example,
+  `ca_file = /data/etc/mqtt-grid-meter/broker-ca.pem`.
+- TLS requires version 1.2 or newer, certificate validation, and hostname
+  verification. There is no insecure certificate bypass. An unreadable/invalid
+  CA, an untrusted/expired certificate, or a hostname/handshake failure fails the
+  connection; there is no automatic fallback to plaintext. Failed TLS wrapping
+  closes the raw socket. Ensure the Cerbo's clock is correct for certificate
+  validity checks.
+- `tls` defaults to `false` for compatibility with existing installations, and
+  its default port remains `1883`. An explicit `port` is always preserved;
+  changing a port alone does not enable TLS. New installations should use the
+  TLS-enabled example after preparing a TLS listener.
+
+For legacy hardware, explicitly select plaintext only on an isolated, trusted
+LAN:
+
+```ini
+[mqtt]
+host = HOME_ASSISTANT_LAN_IP
+tls = false
+port = 1883
+```
+
+This opt-in is **not encrypted or authenticated at the transport layer**:
+MQTT credentials and meter readings can be observed or modified by an attacker
+with access to that network. MQTT usernames/passwords and topic ACLs do not
+remove this risk. Existing configs without `tls` keep this legacy behavior;
+prefer making the choice explicit and migrating the bridge to TLS when possible.
+Do not expose either MQTT listener to the internet or forward its ports.
+
+### Trusted LAN and Mosquitto Recommendations
+
+Configure and verify broker listeners separately; copying `config.example.ini`
+does not create a TLS listener. Prefer a LAN-bound TLS listener on `8883` with a
+server certificate/private key, the required certificate chain, anonymous access
+disabled, and authenticated accounts with topic ACLs. Restrict listener access
+with firewall/VLAN rules to the required devices. Keep broker private keys and
+account passwords out of this repository; restrict the runtime config's file
+permissions (for example, owner-only `chmod 600 config.ini`).
+
+Provision a **dedicated read-only bridge account**, not an administrator or a
+shared Home Assistant/meter account. A Mosquitto ACL entry for the example
+username and topic prefix is:
+
+```text
+user venus-grid-meter
+topic read electric-meter-ir/#
+```
+
+Install this entry in the broker's configured ACL file and ensure no other
+matching rules grant this account write access or broader reads. If you change
+`topic_prefix`, update the ACL accordingly; restricting reads to the individual
+mapped sensor topics is also possible. The bridge subscribes and does not need
+application-topic publish permission. Verify that reads of the required topics
+succeed and publishing or reading unrelated topics is denied.
+
+Recommend separate **per-device accounts** for the meter, bridge, and other
+consumers, with unique credentials and only the required topic permissions.
+Give the meter only the publish/subscribe permissions its actual firmware needs,
+not access to all broker topics. Rotate credentials independently.
+
+Review the ESP8266's actual firmware, ESPHome version/framework, TLS support,
+certificate validation, and resource limits before changing its transport; do
+**not assume ESPHome MQTT TLS is supported** on that build. If the meter cannot
+use verified TLS, a separately restricted LAN-only Mosquitto plaintext listener
+on `1883` can serve it while the Python bridge uses TLS on `8883`. That leaves the
+meter-to-broker hop exposed to the plaintext risks above. Review Mosquitto's
+`per_listener_settings` behavior and authentication/ACL coverage for **every**
+listener; do not accidentally leave a legacy listener anonymous or broadly
+reachable. Listener setup and hardware validation remain operator work, outside
+this Python bridge change.
 
 ## Stale-Data Safety
 
@@ -53,13 +142,26 @@ the remaining bytes as a new packet.
    vi config.ini
    ```
 
-5. Set at least these values in `config.ini`:
+5. Set the broker's certificate DNS hostname, TLS listener, and a separately
+   provisioned read-only bridge account in `[mqtt]`. Replace `CHANGE_ME` locally:
 
    ```ini
-   host = HOME_ASSISTANT_IP
-   username = mqtt
-   password = your_mqtt_password
+   host = mqtt.example.com
+   tls = true
+   port = 8883
+   username = venus-grid-meter
+   password = CHANGE_ME
    ```
+
+   Set `ca_file` if the broker uses a private CA, then restrict config permissions:
+
+   ```sh
+   chmod 600 config.ini
+   ```
+
+   Prepare and verify the broker listener first; if deliberately retaining a
+   legacy LAN-only plaintext connection, use `tls = false` and `port = 1883` as
+   described above rather than copying the TLS settings blindly.
 
 6. Install and start the service:
 
@@ -80,9 +182,12 @@ the remaining bytes as a new packet.
 
 The Cerbo device list should then show a grid meter named `MQTT IR Grid Meter`.
 
-When upgrading an existing installation, copy both Python files, set
-`stale_seconds = 20` in the Cerbo's existing `config.ini`, and restart the
-service:
+When upgrading an existing installation, copy both Python files and keep the
+Cerbo's existing `config.ini` (do not overwrite it with the new TLS example).
+Configs without `tls` remain plaintext on their configured port, or `1883` by
+default; explicitly add `tls = false` if retaining that legacy LAN-only mode.
+Migrate to `tls = true` only after checking the broker TLS listener, certificate
+hostname, and CA trust. Set `stale_seconds = 20` and restart the service:
 
 ```sh
 svc -t /service/mqtt-grid-meter
@@ -139,11 +244,27 @@ dbus -y com.victronenergy.grid.mqtt_ir_grid_meter /Connected GetValue
 
 ## Development Checks
 
-From the repository root, lint the Python files with Ruff and run the focused
-unit tests:
+From the repository root, use the pinned development environment:
 
 ```sh
-uv tool run ruff check venus-os/mqtt-grid-meter
-uv tool run pyrefly check
-uv tool run pytest
+uv sync --locked --python 3.12
+uv run --locked ruff check venus-os/mqtt-grid-meter
+uv run --locked pyrefly check
+uv run --locked pytest
 ```
+
+The bridge alone can also be tested without development dependencies:
+
+```sh
+python3 -B -m unittest discover -s venus-os/mqtt-grid-meter -p 'test_*.py' -v
+```
+
+The tests mock socket connections and TLS wrapping; they cover handshake-before-
+credentials ordering, failure cleanup, verification requirements, TLS minimum,
+config defaults/explicit ports, CA selection/errors, and the existing framing
+and stale-data behavior. They do not contact a broker or prove any deployed
+listener, ACL, certificate chain, or ESP8266 transport is secure. The real
+standard-library context test checks verification defaults without networking.
+Ruff targets Python 3.8 via the repository configuration; run the unittest
+command with a Python 3.8 interpreter as well when validating that runtime.
+Ruff is development tooling, not a bridge runtime dependency.

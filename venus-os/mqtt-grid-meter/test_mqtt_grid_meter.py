@@ -1,3 +1,6 @@
+import configparser
+import os
+import ssl
 import struct
 import sys
 import types
@@ -35,6 +38,134 @@ sys.modules["vedbus"] = vedbus_module
 
 import mqtt_grid_meter
 from simple_mqtt import MqttPublish, SimpleMqttClient
+
+
+class MqttConfigTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.meter = mqtt_grid_meter.GridMeterService.__new__(mqtt_grid_meter.GridMeterService)
+        self.meter.config = configparser.ConfigParser()
+        self.meter.config.read_dict({"mqtt": {"host": "broker.example.com"}})
+        self.default_context_factory = ssl.create_default_context
+        patcher = mock.patch.object(mqtt_grid_meter.ssl, "create_default_context")
+        self.create_context = patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_existing_config_defaults_to_plaintext_1883(self) -> None:
+        client = self.meter._new_mqtt_client()
+
+        self.assertEqual(client.host, "broker.example.com")
+        self.assertEqual(client.port, 1883)
+        self.assertIsNone(client.ssl_context)
+        self.assertIsNone(client.username)
+        self.assertIsNone(client.password)
+        self.assertEqual(client.keepalive, 60)
+        self.create_context.assert_not_called()
+
+    def test_explicit_plaintext_without_port_defaults_to_1883(self) -> None:
+        self.meter.config["mqtt"]["tls"] = "false"
+
+        client = self.meter._new_mqtt_client()
+
+        self.assertEqual(client.port, 1883)
+        self.assertIsNone(client.ssl_context)
+        self.create_context.assert_not_called()
+
+    def test_legacy_config_with_explicit_1883_stays_plaintext(self) -> None:
+        self.meter.config["mqtt"]["port"] = "1883"
+
+        client = self.meter._new_mqtt_client()
+
+        self.assertEqual(client.port, 1883)
+        self.assertIsNone(client.ssl_context)
+        self.create_context.assert_not_called()
+
+    def test_explicit_plaintext_ignores_ca_and_preserves_settings(self) -> None:
+        self.meter.config["mqtt"].update(
+            tls="false", port="1883", ca_file="/unused/ca.pem", username="reader", password="test-only", keepalive="30"
+        )
+
+        client = self.meter._new_mqtt_client()
+
+        self.assertEqual(client.port, 1883)
+        self.assertIsNone(client.ssl_context)
+        self.assertEqual(client.username, "reader")
+        self.assertEqual(client.password, "test-only")
+        self.assertEqual(client.keepalive, 30)
+        self.create_context.assert_not_called()
+
+    def test_tls_defaults_to_8883_and_system_trust(self) -> None:
+        self.meter.config["mqtt"]["tls"] = "true"
+
+        client = self.meter._new_mqtt_client()
+
+        self.assertEqual(client.port, 8883)
+        self.create_context.assert_called_once_with(cafile=None)
+        self.assertIs(client.ssl_context, self.create_context.return_value)
+        assert client.ssl_context is not None
+        self.assertEqual(client.ssl_context.minimum_version, ssl.TLSVersion.TLSv1_2)
+
+    def test_tls_loads_configured_ca_file(self) -> None:
+        self.meter.config["mqtt"].update(tls="true", ca_file=" /data/etc/mqtt-grid-meter/broker-ca.pem ")
+
+        client = self.meter._new_mqtt_client()
+
+        self.create_context.assert_called_once_with(cafile="/data/etc/mqtt-grid-meter/broker-ca.pem")
+        self.assertIs(client.ssl_context, self.create_context.return_value)
+
+    def test_blank_ca_file_uses_system_trust(self) -> None:
+        self.meter.config["mqtt"].update(tls="true", ca_file="  ")
+
+        self.meter._new_mqtt_client()
+
+        self.create_context.assert_called_once_with(cafile=None)
+
+    def test_explicit_ports_are_preserved_independently_of_tls(self) -> None:
+        for tls in ("true", "false"):
+            with self.subTest(tls=tls):
+                self.meter.config["mqtt"].update(tls=tls, port="28883")
+
+                self.assertEqual(self.meter._new_mqtt_client().port, 28883)
+
+    def test_invalid_ca_fails_without_plaintext_fallback(self) -> None:
+        self.meter.config["mqtt"].update(tls="true", ca_file="/missing/ca.pem")
+        for error in (FileNotFoundError("CA file missing"), ssl.SSLError("invalid CA file")):
+            with self.subTest(error=type(error).__name__):
+                self.create_context.side_effect = error
+                with mock.patch.object(mqtt_grid_meter, "SimpleMqttClient") as client_class:
+                    with self.assertRaises(type(error)) as raised:
+                        self.meter._new_mqtt_client()
+                    self.assertIs(raised.exception, error)
+                    client_class.assert_not_called()
+
+    def test_invalid_tls_setting_is_not_treated_as_plaintext(self) -> None:
+        self.meter.config["mqtt"]["tls"] = "invalid"
+
+        with self.assertRaises(ValueError):
+            self.meter._new_mqtt_client()
+
+        self.create_context.assert_not_called()
+
+    def test_real_default_context_requires_certificate_and_hostname_verification(self) -> None:
+        self.create_context.side_effect = self.default_context_factory
+        self.meter.config["mqtt"]["tls"] = "true"
+
+        client = self.meter._new_mqtt_client()
+
+        assert client.ssl_context is not None
+        self.assertTrue(client.ssl_context.check_hostname)
+        self.assertEqual(client.ssl_context.verify_mode, ssl.CERT_REQUIRED)
+        self.assertEqual(client.ssl_context.minimum_version, ssl.TLSVersion.TLSv1_2)
+
+    def test_example_selects_tls_dns_hostname_and_port_8883(self) -> None:
+        config_path = os.path.join(os.path.dirname(__file__), "config.example.ini")
+        self.meter.config = mqtt_grid_meter.load_config(config_path)
+
+        client = self.meter._new_mqtt_client()
+
+        self.assertEqual(client.host, "mqtt.example.com")
+        self.assertEqual(client.port, 8883)
+        self.assertIs(client.ssl_context, self.create_context.return_value)
+        self.create_context.assert_called_once_with(cafile=None)
 
 
 class GridMeterServiceTests(unittest.TestCase):

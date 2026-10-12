@@ -38,14 +38,14 @@ substitutions:
   grid_power_average_interval: 15s
   # Maximum feed-in power of the Soyosource GTN in watts
   max_inverter_power: "600"
-  external_components_soyosource: github://syssi/esphome-soyosource-gtn-virtual-meter@main
-  external_components_victron: github://KinDR007/VictronMPPT-ESPHOME@main
+  external_components_soyosource: github://syssi/esphome-soyosource-gtn-virtual-meter@492955890bbee38d4aa759ccefde47eeeb899e77
+  external_components_victron: github://KinDR007/VictronMPPT-ESPHOME@aa4ec68b8fe21eac2137ad6b827dd3d83bdf4986
 
 esphome:
   name: ${device_name}
   friendly_name: ${friendly_name}
   comment: Soyosource GTN limiter via RS485, Victron MPPT and SmartShunt via VE.Direct on one ESP32.
-  min_version: 2024.6.0
+  min_version: 2026.9.1
   project:
     name: simon.soyosource-victron-esp32
     version: "1.0"
@@ -58,9 +58,9 @@ esp32:
 
 external_components:
   - source: ${external_components_soyosource}
-    refresh: 0s
+    refresh: never
   - source: ${external_components_victron}
-    refresh: 0s
+    refresh: never
 
 packages:
   base: !include common/base.yaml

@@ -25,6 +25,17 @@ they are not loaded unless explicitly included. Add an include when installing a
 
 One secret is required in the active `secrets.yaml`: `waste_ics_url` (ICS calendar URL)
 for [packages/waste_collection.yaml](packages/waste_collection.yaml).
+The waste package retains the recommended nested `sources` and `sensors` under
+`waste_collection_schedule`. The originally flagged nesting concern is **not a
+schema defect** in inspected upstream **v2.35.0**:
+[installation docs](https://github.com/mampfes/hacs_waste_collection_schedule/blob/v2.35.0/doc/installation.md#configuring-sensors)
+and [YAML source](https://github.com/mampfes/hacs_waste_collection_schedule/blob/v2.35.0/custom_components/waste_collection_schedule/init_yaml.py)
+show `CONFIG_SCHEMA` accepting nested `sensors` via `SENSOR_CONFIG`, which requires
+`name` and defaults optional `source_index` to `0` (the first source). Thus `muell`
+needs no explicit index with the sole ICS source. No waste schema migration is
+needed; the original configuration and secret are unchanged. The inspected tag
+is an evidence reference, not an installed-version assertion or requirement;
+the installed HACS version and deployed Home Assistant configuration were not validated.
 
 ## Energy system context
 
@@ -45,7 +56,10 @@ Active packages related to energy:
 - [packages/energy_meter_common.yaml](packages/energy_meter_common.yaml) —
   `sensor.grid_power_average` from the IR meter
 - [packages/solar_pv.yaml](packages/solar_pv.yaml) —
-  Combined PV power (`sensor.solar_power_total`) aggregating OpenDTU and the APsystems EZ1-M
+  Combined PV power (`sensor.solar_power_total`) aggregating OpenDTU and the APsystems EZ1-M.
+  Both readings must be numeric and finite (`is_number`), otherwise the total is
+  unavailable rather than silently partial. Numeric zero at night remains valid;
+  valid readings are summed and rounded to one decimal place.
 - [packages/ir_heizung_kinderzimmer2_control.yaml](packages/ir_heizung_kinderzimmer2_control.yaml) —
   Opt-in IR heater control with sustained export, explicit HVAC modes, and hysteresis
 
@@ -78,18 +92,23 @@ entity's convention before enabling the controller. Numeric-state checks do not
 prove sensor freshness or provide an actuator watchdog during a Home Assistant
 outage; independent heater safety remains necessary.
 
-### Offline heater regression checks
+### Offline HA regression checks
 
-With PyYAML and Jinja2 available in the development Python environment, run:
+From the repository root, install the locked development tools and run:
 
 ```sh
-python -m unittest discover -s homeassistant/tests -v
-yamllint homeassistant
+uv sync --locked --python 3.12
+uv run --locked python -m unittest discover -s homeassistant/tests -v
+uv run --locked yamllint homeassistant
 ```
 
-These tests render the actual package templates and check action selection,
-thresholds, configured dwell time, and opt-in defaults. They do not simulate the
-Home Assistant scheduler, custom integrations, or physical thermostat/relay.
+`uv run --locked pytest` also runs the HA tests alongside the bridge/config tests.
+
+These tests render the actual package templates and check PV availability/sums,
+recommended nested waste YAML layout, heater action selection, thresholds, configured dwell time,
+and opt-in defaults. The waste test preserves `!secret` as a placeholder without
+reading secrets or fetching the calendar. They do not simulate the Home Assistant
+scheduler, custom integrations, or physical thermostat/relay.
 
 ### Retired packages (RD6030 / Soyosource)
 
