@@ -23,6 +23,9 @@ active config directory and use the explicit includes above, then restart Home A
 The retired RD6030 and Soyosource packages can remain in the folder for reference;
 they are not loaded unless explicitly included. Add an include when installing a new package.
 
+The package uses the `triggers:`/`trigger:` and `actions:`/`action:` automation
+syntax, which requires Home Assistant 2024.10 or newer.
+
 One secret is required in the active `secrets.yaml`: `waste_ics_url` (ICS calendar URL)
 for [packages/waste_collection.yaml](packages/waste_collection.yaml).
 The waste package retains the recommended nested `sources` and `sensors` under
