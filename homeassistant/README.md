@@ -141,7 +141,7 @@ lovelace:
       title: Energie Steuerung
       icon: mdi:transmission-tower
       show_in_sidebar: true
-      filename: /config/dashboards/dashboard_energy_control.yaml
+      filename: dashboards/dashboard_energy_control.yaml
 ```
 
 Then copy the `dashboards/` folder into the active Home Assistant config directory and

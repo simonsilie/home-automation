@@ -12,8 +12,6 @@ homeassistant/.storage/
 # Venus OS service runtime config (contains MQTT credentials)
 venus-os/mqtt-grid-meter/config.ini
 
-# Kilo agent tooling state
-.kilo/
 
 # Python
 .venv/

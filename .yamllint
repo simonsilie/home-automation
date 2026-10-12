@@ -5,7 +5,6 @@ ignore: |
   esphome/secrets.yaml
   homeassistant/secrets.yaml
   .venv/
-  .kilo/
 
 rules:
   line-length: disable
