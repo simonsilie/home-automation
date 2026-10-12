@@ -34,12 +34,12 @@ select = ["E4", "E7", "E9", "F", "B", "ANN"]
 "venus-os/mqtt-grid-meter/test_mqtt_grid_meter.py" = ["E402"]
 
 [tool.pyrefly]
-project-includes = ["venus-os/mqtt-grid-meter"]
+project-includes = ["venus-os/mqtt-grid-meter", "tools", "tests", "homeassistant/tests"]
 search-path = ["venus-os/mqtt-grid-meter"]
 python-version = "3.8"
 python-platform = "linux"
 skip-interpreter-query = true
-ignore-missing-imports = ["dbus.*", "gi.*", "vedbus"]
+ignore-missing-imports = ["dbus.*", "gi.*", "vedbus", "yaml", "jinja2.*"]
 
 [tool.pytest.ini_options]
 testpaths = ["venus-os/mqtt-grid-meter", "homeassistant/tests", "tests"]
