@@ -9,7 +9,8 @@ electric_meter_ir ESPHome -> Home Assistant Mosquitto -> Cerbo GX service -> Ven
 ```
 
 No Node-RED and no Venus OS Large image are required. The Python bridge uses
-only the standard library for MQTT and TLS and is compatible with Python 3.8.
+only the standard library for MQTT and TLS and targets the Python 3.12 shipped with
+Venus OS v3.81 (verified: Python 3.12.14 on a Cerbo GX).
 
 ## MQTT Transport and Broker Security
 
@@ -265,6 +266,6 @@ config defaults/explicit ports, CA selection/errors, and the existing framing
 and stale-data behavior. They do not contact a broker or prove any deployed
 listener, ACL, certificate chain, or ESP8266 transport is secure. The real
 standard-library context test checks verification defaults without networking.
-Ruff targets Python 3.8 via the repository configuration; run the unittest
-command with a Python 3.8 interpreter as well when validating that runtime.
-Ruff is development tooling, not a bridge runtime dependency.
+Ruff and pyrefly target Python 3.12 via the repository configuration, matching the
+Cerbo GX firmware; run the unittest command with a Python 3.12 interpreter when
+validating that runtime. Ruff is development tooling, not a bridge runtime dependency.
