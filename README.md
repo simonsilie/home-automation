@@ -127,10 +127,10 @@ fixture below is public dummy data and must never be flashed.
 
 ## Development and CI
 
-The deployed bridge still supports Python 3.8 and requires no pip runtime packages
-beyond the Venus OS-provided D-Bus modules. Development and firmware tools use
-Python 3.12–3.14 in separate dependency groups, with exact direct versions and
-transitive hashes in `uv.lock`:
+The deployed bridge targets the Python 3.12 shipped with Venus OS v3.81 and requires
+no pip runtime packages beyond the Venus OS-provided D-Bus modules. Development and
+firmware tools use Python 3.12–3.14 in separate dependency groups, with exact direct
+versions and transitive hashes in `uv.lock`:
 
 ```sh
 uv sync --locked --python 3.12
@@ -150,7 +150,7 @@ validation. First-time tool installation and external-component validation downl
 public packages/source from PyPI/GitHub.
 
 [CI](.github/workflows/checks.yaml) runs these checks plus the bridge tests on Python
-3.8 without development packages. GitHub Actions are pinned to commit hashes.
+3.12 without development packages. GitHub Actions are pinned to commit hashes.
 Intentional tool upgrades should update `pyproject.toml` and regenerate `uv.lock`.
 
 ## Home Assistant
