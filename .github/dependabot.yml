@@ -1,0 +1,31 @@
+version: 2
+
+updates:
+  # Python tooling pinned in pyproject.toml / uv.lock (dev and firmware groups).
+  - package-ecosystem: uv
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      dev-tools:
+        patterns:
+          - ruff
+          - pyrefly
+          - pytest
+          - yamllint
+          - jinja2
+          - pyyaml
+      # ESPHome releases can change config schemas; review it on its own.
+      esphome:
+        patterns:
+          - esphome
+
+  # Actions are pinned to commit SHAs; Dependabot updates the SHA and the version comment.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      github-actions:
+        patterns:
+          - "*"
