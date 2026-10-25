@@ -8,7 +8,7 @@ SOURCE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 mkdir -p "$DEST"
 mkdir -p /data/log/mqtt-grid-meter
 
-for file in mqtt_grid_meter.py simple_mqtt.py config.example.ini install.sh boot.sh README.md; do
+for file in mqtt_grid_meter.py simple_mqtt.py config.py config.example.ini install.sh boot.sh README.md; do
   if [ "$SOURCE/$file" != "$DEST/$file" ]; then
     cp "$SOURCE/$file" "$DEST/$file"
   fi

@@ -17,6 +17,7 @@ import dbus.mainloop.glib
 from gi.repository import GLib
 from vedbus import VeDbusService
 
+from config import BridgeConfig, MeterMapping, MeterSettings
 from simple_mqtt import SimpleMqttClient
 
 
@@ -95,22 +96,17 @@ class DbusMeterBackend:
 
     registered_paths: tuple = REGISTERED_DBUS_PATHS
 
-    def __init__(self, config: configparser.ConfigParser) -> None:
-        product_name = config.get("grid_meter", "product_name", fallback="MQTT IR Grid Meter")
-        custom_name = config.get("grid_meter", "custom_name", fallback="Electric Meter IR")
-        device_instance = config.getint("grid_meter", "device_instance", fallback=40)
-
+    def __init__(self, meter: MeterSettings) -> None:
         dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
-        service_name = config.get("grid_meter", "service_name", fallback="com.victronenergy.grid.mqtt_ir_grid_meter")
-        self.service = VeDbusService(service_name, register=False)
+        self.service = VeDbusService(meter.service_name, register=False)
 
         self.service.add_path("/Mgmt/ProcessName", __file__)
         self.service.add_path("/Mgmt/ProcessVersion", VERSION)
         self.service.add_path("/Mgmt/Connection", "MQTT")
-        self.service.add_path("/DeviceInstance", device_instance)
+        self.service.add_path("/DeviceInstance", meter.device_instance)
         self.service.add_path("/ProductId", 0xFFFF)
-        self.service.add_path("/ProductName", product_name)
-        self.service.add_path("/CustomName", custom_name)
+        self.service.add_path("/ProductName", meter.product_name)
+        self.service.add_path("/CustomName", meter.custom_name)
         self.service.add_path("/FirmwareVersion", VERSION)
         self.service.add_path("/HardwareVersion", "ESPHome SML over MQTT")
         self.service.add_path("/Connected", 0)
@@ -130,13 +126,11 @@ class DbusMeterBackend:
 
 class GridMeterService:
     def __init__(self, config: configparser.ConfigParser, backend: Optional[MeterBackend] = None) -> None:
-        self.config = config
-        self.topic_prefix = config.get("mqtt", "topic_prefix", fallback="electric-meter-ir").strip("/")
-        self.stale_seconds = config.getint("grid_meter", "stale_seconds", fallback=20)
+        self.settings = BridgeConfig.from_config(config)
         self.last_updates: Dict[str, float] = {}
         self.stop_event = threading.Event()
 
-        self.backend: MeterBackend = backend if backend is not None else DbusMeterBackend(config)
+        self.backend: MeterBackend = backend if backend is not None else DbusMeterBackend(self.settings.meter)
         self.mainloop = GLib.MainLoop()
         self.topic_map = self._build_topic_map()
 
@@ -156,7 +150,7 @@ class GridMeterService:
             try:
                 client = self._new_mqtt_client()
                 client.connect()
-                client.subscribe("%s/#" % self.topic_prefix)
+                client.subscribe("%s/#" % self.settings.mqtt.topic_prefix)
                 client.loop_forever(self._on_mqtt_message, self.stop_event)
             except Exception as exc:
                 GLib.idle_add(self._invalidate_meter)
@@ -167,19 +161,15 @@ class GridMeterService:
                     client.close()
 
     def _new_mqtt_client(self) -> SimpleMqttClient:
-        host = self.config.get("mqtt", "host")
-        tls = self.config.getboolean("mqtt", "tls", fallback=False)
-        port = self.config.getint("mqtt", "port", fallback=8883 if tls else 1883)
+        mqtt = self.settings.mqtt
         ssl_context = None
-        if tls:
-            ca_file = self.config.get("mqtt", "ca_file", fallback="").strip() or None
-            ssl_context = ssl.create_default_context(cafile=ca_file)
+        if mqtt.tls:
+            ssl_context = ssl.create_default_context(cafile=mqtt.ca_file)
             ssl_context.minimum_version = ssl.TLSVersion.TLSv1_2
-        username = self.config.get("mqtt", "username", fallback="").strip() or None
-        password = self.config.get("mqtt", "password", fallback="").strip() or None
-        keepalive = self.config.getint("mqtt", "keepalive", fallback=60)
         client_id = "venus-mqtt-grid-meter-%s" % os.uname().nodename
-        return SimpleMqttClient(host, port, client_id, username, password, keepalive, ssl_context=ssl_context)
+        return SimpleMqttClient(
+            mqtt.host, mqtt.port, client_id, mqtt.username, mqtt.password, mqtt.keepalive, ssl_context=ssl_context
+        )
 
     def _on_mqtt_message(self, topic: str, payload: str, retained: bool) -> None:
         if topic not in self.topic_map:
@@ -198,7 +188,7 @@ class GridMeterService:
     def _update_value(self, path: str, value: float, received_at: float) -> bool:
         if path in INSTANTANEOUS_PATHS:
             # A busy main loop must not make a queued, old sample fresh again.
-            if time.monotonic() - received_at > self.stale_seconds:
+            if time.monotonic() - received_at > self.settings.meter.stale_seconds:
                 return False
             self.last_updates[path] = received_at
         self.backend.set_value(path, value)
@@ -216,11 +206,11 @@ class GridMeterService:
     def _check_stale(self) -> bool:
         now = time.monotonic()
         last_power = self.last_updates.get(POWER_PATH)
-        if last_power is not None and now - last_power > self.stale_seconds:
+        if last_power is not None and now - last_power > self.settings.meter.stale_seconds:
             self._invalidate_meter()
         else:
             for path, received_at in list(self.last_updates.items()):
-                if now - received_at > self.stale_seconds:
+                if now - received_at > self.settings.meter.stale_seconds:
                     self.backend.set_value(path, None)
                     del self.last_updates[path]
         return True
@@ -230,50 +220,36 @@ class GridMeterService:
         self.mainloop.quit()
 
     def _build_topic_map(self) -> TopicMap:
-        return load_mappings(
-            self.config,
-            REGISTERED_DBUS_PATHS,
-            self.config.getfloat("grid_meter", "power_multiplier", fallback=1.0),
-        )
+        return load_mappings(self.settings, self.backend.registered_paths)
 
 
-def load_mappings(config: configparser.ConfigParser, registered_paths: tuple, power_multiplier: float) -> TopicMap:
-    """Resolve [mapping.*] sections into {topic: (dbus_path, converter)}.
+def load_mappings(config: BridgeConfig, registered_paths: tuple) -> TopicMap:
+    """Resolve the config's mapping entries into {topic: (dbus_path, converter)}.
 
-    Without mapping sections the default ESPHome sensor topics for
-    [mqtt] topic_prefix are used, matching historic behaviour.
+    Without [mapping.*] sections the default ESPHome sensor topics for the
+    configured topic_prefix are used, matching historic behaviour.
     """
-    prefix = config.get("mqtt", "topic_prefix", fallback="electric-meter-ir").strip("/")
-    sections = [name for name in config.sections() if name.startswith("mapping.")]
-    if not sections:
-        entries = [("%s/sensor/%s/state" % (prefix, suffix), path, conv) for suffix, path, conv in DEFAULT_MAPPINGS]
-    else:
-        entries = []
-        for name in sections:
-            topic = config.get(name, "topic", fallback="").strip("/")
-            if not topic:
-                raise ValueError("[%s] is missing the topic option" % name)
-            if not topic.startswith(prefix + "/"):
-                raise ValueError("Mapping topic %r must live under the topic_prefix %r" % (topic, prefix))
-            path = config.get(name, "dbus_path", fallback="").strip()
-            if not path:
-                raise ValueError("[%s] is missing the dbus_path option" % name)
-            if path not in registered_paths:
-                raise ValueError("[%s] dbus_path %r is not a registered D-Bus path" % (name, path))
-            entries.append(
-                (
-                    topic,
-                    path,
-                    config.get(name, "converter", fallback="float").strip(),
-                )
+    entries: Tuple[MeterMapping, ...] = config.mappings or tuple(
+        MeterMapping(
+            topic="%s/sensor/%s/state" % (config.mqtt.topic_prefix, suffix),
+            dbus_path=path,
+            converter=name,
+        )
+        for suffix, path, name in DEFAULT_MAPPINGS
+    )
+    topic_map = []
+    for mapping in entries:
+        if mapping.dbus_path not in registered_paths:
+            raise ValueError(
+                "dbus_path %r for topic %r is not a registered D-Bus path" % (mapping.dbus_path, mapping.topic)
             )
-
-    topic_map: TopicMap = {}
-    for topic, path, converter_name in entries:
-        if topic in topic_map:
-            raise ValueError("Duplicate mapping topic %r" % topic)
-        topic_map[topic] = (path, converter_for(converter_name, power_multiplier))
-    return topic_map
+        topic_map.append(
+            (
+                mapping.topic,
+                (mapping.dbus_path, converter_for(mapping.converter, config.meter.power_multiplier)),
+            )
+        )
+    return dict(topic_map)
 
 
 def load_config(path: str) -> configparser.ConfigParser:

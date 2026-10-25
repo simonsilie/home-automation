@@ -37,7 +37,23 @@ vedbus_module.__dict__["VeDbusService"] = object
 sys.modules["vedbus"] = vedbus_module
 
 import mqtt_grid_meter
+from config import BridgeConfig
 from simple_mqtt import MqttPublish, SimpleMqttClient
+
+ConfigDict = Dict[str, Dict[str, Any]]
+
+
+def configparser_from(config_dict: ConfigDict) -> configparser.ConfigParser:
+    config = configparser.ConfigParser()
+    config.read_dict(config_dict)
+    return config
+
+
+def lint_free_example_config() -> configparser.ConfigParser:
+    config = mqtt_grid_meter.load_config(os.path.join(os.path.dirname(__file__), "config.example.ini"))
+    # Values are intentionally invalid for a live deployment (CHANGE_ME); only
+    # option presence matters here.
+    return config
 
 
 class DictMeterBackend:
@@ -58,15 +74,24 @@ class DictMeterBackend:
 class MqttConfigTests(unittest.TestCase):
     def setUp(self) -> None:
         self.meter = mqtt_grid_meter.GridMeterService.__new__(mqtt_grid_meter.GridMeterService)
-        self.meter.config = configparser.ConfigParser()
-        self.meter.config.read_dict({"mqtt": {"host": "broker.example.com"}})
+        self.meter.settings = self.settings({"mqtt": {"host": "broker.example.com"}})
         self.default_context_factory = ssl.create_default_context
         patcher = mock.patch.object(mqtt_grid_meter.ssl, "create_default_context")
         self.create_context = patcher.start()
         self.addCleanup(patcher.stop)
 
+    @staticmethod
+    def settings(config_dict: ConfigDict) -> BridgeConfig:
+        return BridgeConfig.from_config(configparser_from(config_dict))
+
+    def client_with(self, **mqtt_overrides: str) -> "SimpleMqttClient":
+        self.meter.settings = self.settings(
+            {"mqtt": {**{"host": "broker.example.com"}, **mqtt_overrides}, "grid_meter": {}}
+        )
+        return self.meter._new_mqtt_client()
+
     def test_existing_config_defaults_to_plaintext_1883(self) -> None:
-        client = self.meter._new_mqtt_client()
+        client = self.client_with()
 
         self.assertEqual(client.host, "broker.example.com")
         self.assertEqual(client.port, 1883)
@@ -77,29 +102,23 @@ class MqttConfigTests(unittest.TestCase):
         self.create_context.assert_not_called()
 
     def test_explicit_plaintext_without_port_defaults_to_1883(self) -> None:
-        self.meter.config["mqtt"]["tls"] = "false"
-
-        client = self.meter._new_mqtt_client()
+        client = self.client_with(tls="false")
 
         self.assertEqual(client.port, 1883)
         self.assertIsNone(client.ssl_context)
         self.create_context.assert_not_called()
 
     def test_legacy_config_with_explicit_1883_stays_plaintext(self) -> None:
-        self.meter.config["mqtt"]["port"] = "1883"
-
-        client = self.meter._new_mqtt_client()
+        client = self.client_with(port="1883")
 
         self.assertEqual(client.port, 1883)
         self.assertIsNone(client.ssl_context)
         self.create_context.assert_not_called()
 
     def test_explicit_plaintext_ignores_ca_and_preserves_settings(self) -> None:
-        self.meter.config["mqtt"].update(
+        client = self.client_with(
             tls="false", port="1883", ca_file="/unused/ca.pem", username="reader", password="test-only", keepalive="30"
         )
-
-        client = self.meter._new_mqtt_client()
 
         self.assertEqual(client.port, 1883)
         self.assertIsNone(client.ssl_context)
@@ -109,9 +128,7 @@ class MqttConfigTests(unittest.TestCase):
         self.create_context.assert_not_called()
 
     def test_tls_defaults_to_8883_and_system_trust(self) -> None:
-        self.meter.config["mqtt"]["tls"] = "true"
-
-        client = self.meter._new_mqtt_client()
+        client = self.client_with(tls="true")
 
         self.assertEqual(client.port, 8883)
         self.create_context.assert_called_once_with(cafile=None)
@@ -120,51 +137,45 @@ class MqttConfigTests(unittest.TestCase):
         self.assertEqual(client.ssl_context.minimum_version, ssl.TLSVersion.TLSv1_2)
 
     def test_tls_loads_configured_ca_file(self) -> None:
-        self.meter.config["mqtt"].update(tls="true", ca_file=" /data/etc/mqtt-grid-meter/broker-ca.pem ")
-
-        client = self.meter._new_mqtt_client()
+        client = self.client_with(tls="true", ca_file=" /data/etc/mqtt-grid-meter/broker-ca.pem ")
 
         self.create_context.assert_called_once_with(cafile="/data/etc/mqtt-grid-meter/broker-ca.pem")
         self.assertIs(client.ssl_context, self.create_context.return_value)
 
     def test_blank_ca_file_uses_system_trust(self) -> None:
-        self.meter.config["mqtt"].update(tls="true", ca_file="  ")
-
-        self.meter._new_mqtt_client()
+        self.client_with(tls="true", ca_file="  ")
 
         self.create_context.assert_called_once_with(cafile=None)
 
     def test_explicit_ports_are_preserved_independently_of_tls(self) -> None:
         for tls in ("true", "false"):
             with self.subTest(tls=tls):
-                self.meter.config["mqtt"].update(tls=tls, port="28883")
+                client = self.client_with(tls=tls, port="28883")
 
-                self.assertEqual(self.meter._new_mqtt_client().port, 28883)
+                self.assertEqual(client.port, 28883)
 
     def test_invalid_ca_fails_without_plaintext_fallback(self) -> None:
-        self.meter.config["mqtt"].update(tls="true", ca_file="/missing/ca.pem")
+        client_of_errors = []
         for error in (FileNotFoundError("CA file missing"), ssl.SSLError("invalid CA file")):
             with self.subTest(error=type(error).__name__):
                 self.create_context.side_effect = error
                 with mock.patch.object(mqtt_grid_meter, "SimpleMqttClient") as client_class:
                     with self.assertRaises(type(error)) as raised:
-                        self.meter._new_mqtt_client()
+                        client_of_errors.append(self.client_with(tls="true", ca_file="/missing/ca.pem"))
                     self.assertIs(raised.exception, error)
                     client_class.assert_not_called()
+        self.assertEqual(client_of_errors, [])
 
     def test_invalid_tls_setting_is_not_treated_as_plaintext(self) -> None:
-        self.meter.config["mqtt"]["tls"] = "invalid"
-
         with self.assertRaises(ValueError):
-            self.meter._new_mqtt_client()
+            self.client_with(tls="invalid")
 
         self.create_context.assert_not_called()
 
     def test_real_default_context_requires_certificate_and_hostname_verification(self) -> None:
         self.create_context.side_effect = self.default_context_factory
-        self.meter.config["mqtt"]["tls"] = "true"
 
-        client = self.meter._new_mqtt_client()
+        client = self.client_with(tls="true")
 
         assert client.ssl_context is not None
         self.assertTrue(client.ssl_context.check_hostname)
@@ -172,8 +183,9 @@ class MqttConfigTests(unittest.TestCase):
         self.assertEqual(client.ssl_context.minimum_version, ssl.TLSVersion.TLSv1_2)
 
     def test_example_selects_tls_dns_hostname_and_port_8883(self) -> None:
-        config_path = os.path.join(os.path.dirname(__file__), "config.example.ini")
-        self.meter.config = mqtt_grid_meter.load_config(config_path)
+        config = lint_free_example_config()
+
+        self.meter.settings = BridgeConfig.from_config(config)
 
         client = self.meter._new_mqtt_client()
 
@@ -190,7 +202,9 @@ class GridMeterServiceTests(unittest.TestCase):
         self.backend = DictMeterBackend()
         self.meter.backend = self.backend
         self.meter.last_updates = {}
-        self.meter.stale_seconds = 20
+        self.meter.settings = MqttConfigTests.settings(
+            {"mqtt": {"host": "broker.example.com"}, "grid_meter": {"stale_seconds": "20"}}
+        )
         self.meter.topic_map = {
             "meter/power": (mqtt_grid_meter.POWER_PATH, mqtt_grid_meter.converter_for("power", 1.0)),
         }
@@ -323,22 +337,33 @@ class GridMeterServiceTests(unittest.TestCase):
 
 
 class MappingTests(unittest.TestCase):
-    def load(self, config_dict: Dict[str, Dict[str, Any]]) -> mqtt_grid_meter.TopicMap:
-        config = configparser.ConfigParser()
-        config.read_dict(config_dict)
-        return mqtt_grid_meter.load_mappings(
-            config, mqtt_grid_meter.REGISTERED_DBUS_PATHS, float(config["grid_meter"].get("power_multiplier", "1"))
-        )
+    def bridge_config(self, config_dict: ConfigDict) -> BridgeConfig:
+        return BridgeConfig.from_config(configparser_from(config_dict))
+
+    def mapping_config(self, config_dict: ConfigDict) -> BridgeConfig:
+        combined: Dict[str, Dict[str, Any]] = {
+            "mqtt": {**{"topic_prefix": "electric-meter-ir", "host": "x"}, **config_dict.get("mqtt", {})},
+            "grid_meter": config_dict.get("grid_meter", {}),
+        }
+        combined.update(config_dict.get("mappings", {}))
+        return self.bridge_config(combined)
+
+    def load(self, config_dict: ConfigDict) -> mqtt_grid_meter.TopicMap:
+        return mqtt_grid_meter.load_mappings(self.mapping_config(config_dict), mqtt_grid_meter.REGISTERED_DBUS_PATHS)
 
     def example_config(self) -> mqtt_grid_meter.TopicMap:
-        config_path = os.path.join(os.path.dirname(__file__), "config.example.ini")
-        config = mqtt_grid_meter.load_config(config_path)
-        return mqtt_grid_meter.load_mappings(
-            config, mqtt_grid_meter.REGISTERED_DBUS_PATHS, config.getfloat("grid_meter", "power_multiplier")
-        )
+        config = lint_free_example_config()
+
+        return mqtt_grid_meter.load_mappings(BridgeConfig.from_config(config), mqtt_grid_meter.REGISTERED_DBUS_PATHS)
+
+    def mapping_sections(self, *sections: Dict[str, str], **overrides: str) -> ConfigDict:
+        return {
+            "mappings": {("mapping.%s" % index): dict(section) for index, section in enumerate(sections, start=1)},
+            "grid_meter": {key: value for key, value in overrides.items()},
+        }
 
     def test_no_mapping_sections_use_default_esphome_topics(self) -> None:
-        topic_map = self.load({"mqtt": {"topic_prefix": "electric-meter-ir", "host": "x"}, "grid_meter": {}})
+        topic_map = self.load({})
 
         self.assertEqual(len(topic_map), len(mqtt_grid_meter.DEFAULT_MAPPINGS))
         path, active_power = topic_map["electric-meter-ir/sensor/active_power/state"]
@@ -349,7 +374,7 @@ class MappingTests(unittest.TestCase):
         self.assertEqual(energy_import("123.4"), 123.4)
 
     def test_default_topics_follow_topic_prefix(self) -> None:
-        topic_map = self.load({"mqtt": {"topic_prefix": "other/prefix", "host": "x"}, "grid_meter": {}})
+        topic_map = self.load({"mqtt": {"topic_prefix": "other/prefix"}})
 
         self.assertIn("other/prefix/sensor/active_power/state", topic_map)
 
@@ -360,22 +385,16 @@ class MappingTests(unittest.TestCase):
         self.assertIn("electric-meter-ir/sensor/grid_frequency/state", topic_map)
 
     def test_explicit_mapping_sections_are_used(self) -> None:
-        topic_map = self.load(
+        config = self.mapping_sections(
+            {"topic": "electric-meter-ir/sensor/active_power/state", "dbus_path": "/Ac/Power", "converter": "power"},
             {
-                "mqtt": {"topic_prefix": "electric-meter-ir", "host": "x"},
-                "grid_meter": {"power_multiplier": "-1"},
-                "mapping.main_power": {
-                    "topic": "electric-meter-ir/sensor/active_power/state",
-                    "dbus_path": "/Ac/Power",
-                    "converter": "power",
-                },
-                "mapping.import": {
-                    "topic": "electric-meter-ir/sensor/total_energy_import/state",
-                    "dbus_path": "/Ac/Energy/Forward",
-                    "converter": "float",
-                },
-            }
+                "topic": "electric-meter-ir/sensor/total_energy_import/state",
+                "dbus_path": "/Ac/Energy/Forward",
+                "converter": "float",
+            },
+            power_multiplier="-1",
         )
+        topic_map = self.load(config)
 
         self.assertEqual(len(topic_map), 2)
         path, converter = topic_map["electric-meter-ir/sensor/active_power/state"]
@@ -387,14 +406,9 @@ class MappingTests(unittest.TestCase):
 
     def test_converter_defaults_to_float(self) -> None:
         topic_map = self.load(
-            {
-                "mqtt": {"topic_prefix": "electric-meter-ir", "host": "x"},
-                "grid_meter": {},
-                "mapping.freq": {
-                    "topic": "electric-meter-ir/sensor/grid_frequency/state",
-                    "dbus_path": "/Ac/Frequency",
-                },
-            }
+            self.mapping_sections(
+                {"topic": "electric-meter-ir/sensor/grid_frequency/state", "dbus_path": "/Ac/Frequency"}
+            )
         )
 
         path, converter = topic_map["electric-meter-ir/sensor/grid_frequency/state"]
@@ -402,69 +416,43 @@ class MappingTests(unittest.TestCase):
         self.assertEqual(converter("50.1"), 50.1)
 
     def test_duplicate_topics_are_rejected(self) -> None:
-        config = {
-            "mqtt": {"topic_prefix": "electric-meter-ir", "host": "x"},
-            "grid_meter": {},
-            "mapping.a": {"topic": "electric-meter-ir/sensor/active_power/state", "dbus_path": "/Ac/Power"},
-            "mapping.b": {"topic": "electric-meter-ir/sensor/active_power/state", "dbus_path": "/Ac/L1/Power"},
-        }
+        config = self.mapping_sections(
+            {"topic": "electric-meter-ir/sensor/active_power/state", "dbus_path": "/Ac/Power"},
+            {"topic": "electric-meter-ir/sensor/active_power/state", "dbus_path": "/Ac/L1/Power"},
+        )
 
         with self.assertRaisesRegex(ValueError, "Duplicate mapping topic"):
-            self.load(config)
+            self.mapping_config(config)
 
     def test_unknown_converter_is_rejected(self) -> None:
-        config = {
-            "mqtt": {"topic_prefix": "electric-meter-ir", "host": "x"},
-            "grid_meter": {},
-            "mapping.a": {
-                "topic": "electric-meter-ir/sensor/active_power/state",
-                "dbus_path": "/Ac/Power",
-                "converter": "int",
-            },
-        }
+        config = self.mapping_sections(
+            {"topic": "electric-meter-ir/sensor/active_power/state", "dbus_path": "/Ac/Power", "converter": "int"}
+        )
 
         with self.assertRaisesRegex(ValueError, "Unknown converter"):
             self.load(config)
 
     def test_unregistered_dbus_path_is_rejected(self) -> None:
-        config = {
-            "mqtt": {"topic_prefix": "electric-meter-ir", "host": "x"},
-            "grid_meter": {},
-            "mapping.a": {"topic": "electric-meter-ir/sensor/active_power/state", "dbus_path": "/Dc/Power"},
-        }
+        config = self.mapping_sections(
+            {"topic": "electric-meter-ir/sensor/active_power/state", "dbus_path": "/Dc/Power"}
+        )
 
         with self.assertRaisesRegex(ValueError, "not a registered D-Bus path"):
             self.load(config)
 
     def test_missing_topic_is_rejected(self) -> None:
-        config = {
-            "mqtt": {"topic_prefix": "electric-meter-ir", "host": "x"},
-            "grid_meter": {},
-            "mapping.a": {"dbus_path": "/Ac/Power"},
-        }
-
         with self.assertRaisesRegex(ValueError, "missing the topic option"):
-            self.load(config)
+            self.mapping_config(self.mapping_sections({"dbus_path": "/Ac/Power"}))
 
     def test_missing_dbus_path_is_rejected(self) -> None:
-        config = {
-            "mqtt": {"topic_prefix": "electric-meter-ir", "host": "x"},
-            "grid_meter": {},
-            "mapping.a": {"topic": "electric-meter-ir/sensor/active_power/state"},
-        }
-
         with self.assertRaisesRegex(ValueError, "missing the dbus_path option"):
-            self.load(config)
+            self.mapping_config(self.mapping_sections({"topic": "electric-meter-ir/sensor/active_power/state"}))
 
     def test_topic_outside_topic_prefix_is_rejected(self) -> None:
-        config = {
-            "mqtt": {"topic_prefix": "electric-meter-ir", "host": "x"},
-            "grid_meter": {},
-            "mapping.a": {"topic": "other-device/sensor/active_power/state", "dbus_path": "/Ac/Power"},
-        }
+        config = self.mapping_sections({"topic": "other-device/sensor/active_power/state", "dbus_path": "/Ac/Power"})
 
         with self.assertRaisesRegex(ValueError, "topic_prefix"):
-            self.load(config)
+            self.mapping_config(config)
 
 
 class SimpleMqttClientTests(unittest.TestCase):
