@@ -40,7 +40,7 @@ search-path = ["venus-os/mqtt-grid-meter"]
 python-version = "3.12"
 python-platform = "linux"
 skip-interpreter-query = true
-ignore-missing-imports = ["dbus.*", "gi.*", "vedbus", "yaml", "jinja2.*"]
+ignore-missing-imports = ["dbus.*", "gi", "gi.*", "vedbus", "yaml", "jinja2.*"]
 
 [tool.pytest.ini_options]
 testpaths = ["venus-os/mqtt-grid-meter", "homeassistant/tests", "tests"]
