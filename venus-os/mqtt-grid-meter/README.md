@@ -183,7 +183,8 @@ the remaining bytes as a new packet.
 
 The Cerbo device list should then show a grid meter named `MQTT IR Grid Meter`.
 
-When upgrading an existing installation, copy both Python files and keep the
+When upgrading an existing installation, copy all three Python files
+(`mqtt_grid_meter.py`, `simple_mqtt.py`, `config.py`) and keep the
 Cerbo's existing `config.ini` (do not overwrite it with the new TLS example).
 Configs without `tls` remain plaintext on their configured port, or `1883` by
 default; explicitly add `tls = false` if retaining that legacy LAN-only mode.
