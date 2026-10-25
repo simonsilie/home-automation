@@ -5,7 +5,6 @@ indirection is the MeterBackend interface that marks where values are stored.
 """
 
 import math
-import time
 from typing import Callable, Dict, Optional, Protocol, Tuple
 
 from config import BridgeConfig, MeterMapping
@@ -54,7 +53,7 @@ DEFAULT_MAPPINGS = (
 class MeterBackend(Protocol):
     """What the bridge needs from its value sink: a Victron D-Bus meter in production."""
 
-    registered_paths: tuple
+    registered_paths: Tuple[str, ...]
 
     def set_value(self, path: str, value: Optional[float]) -> None: ...
 
@@ -98,8 +97,6 @@ def load_mappings(config: BridgeConfig, registered_paths: tuple) -> TopicMap:
             raise ValueError(
                 "dbus_path %r for topic %r is not a registered D-Bus path" % (mapping.dbus_path, mapping.topic)
             )
-        if mapping.topic in topic_map:
-            raise ValueError("Duplicate mapping topic %r" % mapping.topic)
         topic_map[mapping.topic] = (
             mapping.dbus_path,
             converter_for(mapping.converter, config.meter.power_multiplier),
@@ -130,10 +127,10 @@ class MeterState:
         self.stale_seconds = stale_seconds
         self.last_updates: Dict[str, float] = {}
 
-    def update_value(self, path: str, value: float, received_at: float, now: Optional[float] = None) -> None:
+    def update_value(self, path: str, value: float, received_at: float, now: float) -> None:
         if path in INSTANTANEOUS_PATHS:
             # A busy main loop must not make a queued, old sample fresh again.
-            if (now if now is not None else time.monotonic()) - received_at > self.stale_seconds:
+            if now - received_at > self.stale_seconds:
                 return
             self.last_updates[path] = received_at
         self.backend.set_value(path, value)

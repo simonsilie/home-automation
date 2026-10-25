@@ -24,7 +24,7 @@ VERSION = "0.1.5"
 class DbusMeterBackend:
     """MeterBackend implementation backed by a VeDbusService grid meter."""
 
-    registered_paths: tuple = REGISTERED_DBUS_PATHS
+    registered_paths: Tuple[str, ...] = REGISTERED_DBUS_PATHS
 
     def __init__(self, meter: MeterSettings) -> None:
         dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
@@ -82,6 +82,11 @@ class GridMeterService:
         return SimpleMqttClient(
             mqtt.host, mqtt.port, client_id, mqtt.username, mqtt.password, mqtt.keepalive, ssl_context=ssl_context
         )
+
+    @property
+    def mqtt_topic_prefix(self) -> str:
+        """Subscribe filter prefix for BridgeApp's worker thread."""
+        return self.settings.mqtt.topic_prefix
 
 
 def load_config(path: str) -> configparser.ConfigParser:

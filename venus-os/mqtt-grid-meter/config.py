@@ -76,17 +76,17 @@ class BridgeConfig:
 
     @classmethod
     def from_config(cls, config: configparser.ConfigParser) -> "BridgeConfig":
-        mappings = _read_mappings(config)
+        mqtt = MqttSettings.from_config(config)
+        mappings = _read_mappings(config, mqtt.topic_prefix)
         return cls(
-            mqtt=MqttSettings.from_config(config),
+            mqtt=mqtt,
             meter=MeterSettings.from_config(config),
             mappings=tuple(mappings) if mappings else None,
         )
 
 
-def _read_mappings(config: configparser.ConfigParser) -> Tuple[MeterMapping, ...]:
-    prefix = config.get("mqtt", "topic_prefix", fallback=DEFAULT_TOPIC_PREFIX).strip("/")
-    seen: Tuple[str, ...] = ()
+def _read_mappings(config: configparser.ConfigParser, prefix: str) -> Tuple[MeterMapping, ...]:
+    seen: set = set()
     mappings: Tuple[MeterMapping, ...] = ()
     for name in [section for section in config.sections() if section.startswith("mapping.")]:
         topic = config.get(name, "topic", fallback="").strip("/")
@@ -99,7 +99,7 @@ def _read_mappings(config: configparser.ConfigParser) -> Tuple[MeterMapping, ...
             raise ValueError("[%s] is missing the dbus_path option" % name)
         if topic in seen:
             raise ValueError("Duplicate mapping topic %r" % topic)
-        seen += (topic,)
+        seen.add(topic)
         mappings += (
             MeterMapping(
                 topic=topic,
