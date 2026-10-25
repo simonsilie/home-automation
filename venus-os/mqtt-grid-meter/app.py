@@ -46,7 +46,7 @@ class BridgeApp:
             try:
                 client = self.service.create_mqtt_client()
                 client.connect()
-                client.subscribe("%s/#" % self.service.settings.mqtt.topic_prefix)
+                client.subscribe("%s/#" % self.service.mqtt_topic_prefix)
                 client.loop_forever(self._on_mqtt_message, self.stop_event)
             except Exception as exc:
                 GLib.idle_add(self._invalidate_meter)
