@@ -136,7 +136,9 @@ class MqttConfigTests(unittest.TestCase):
     def settings(config_dict: ConfigDict) -> BridgeConfig:
         return BridgeConfig.from_config(configparser_from(config_dict))
 
-    def client_with(self, factory: Optional[Callable[..., ssl.SSLContext]] = None, **mqtt_overrides: str) -> "SimpleMqttClient":
+    def client_with(
+        self, factory: Optional[Callable[..., ssl.SSLContext]] = None, **mqtt_overrides: str
+    ) -> "SimpleMqttClient":
         self.meter.settings = self.settings(
             {"mqtt": {**{"host": "broker.example.com"}, **mqtt_overrides}, "grid_meter": {}}
         )
