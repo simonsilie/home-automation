@@ -8,9 +8,9 @@ dependencies = []
 dev = [
     "Jinja2==3.1.6",
     "PyYAML==6.0.3",
-    "pyrefly==1.1.1",
-    "pytest==8.4.2",
-    "ruff==0.15.22",
+    "pyrefly==1.4.0",
+    "pytest==9.1.1",
+    "ruff==0.17.1",
     "yamllint==1.38.0",
 ]
 firmware = ["esphome==2026.9.1"]
