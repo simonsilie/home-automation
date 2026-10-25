@@ -9,7 +9,7 @@ import sys
 import threading
 import time
 from types import FrameType
-from typing import Callable, Dict, Optional, Tuple
+from typing import Callable, Dict, Optional, Protocol, Tuple
 
 sys.path.insert(0, "/opt/victronenergy/dbus-systemcalc-py/ext/velib_python")
 
@@ -80,37 +80,29 @@ def converter_for(name: str, power_multiplier: float) -> PayloadConverter:
     raise ValueError("Unknown converter %r (expected 'float' or 'power')" % name)
 
 
-class GridMeterService:
+class MeterBackend(Protocol):
+    """What the bridge needs from its value sink: a Victron D-Bus meter in production."""
+
+    registered_paths: tuple
+
+    def set_value(self, path: str, value: Optional[float]) -> None: ...
+
+    def set_connected(self, connected: bool) -> None: ...
+
+
+class DbusMeterBackend:
+    """MeterBackend implementation backed by a VeDbusService grid meter."""
+
+    registered_paths: tuple = REGISTERED_DBUS_PATHS
+
     def __init__(self, config: configparser.ConfigParser) -> None:
-        self.config = config
-        self.topic_prefix = config.get("mqtt", "topic_prefix", fallback="electric-meter-ir").strip("/")
-        self.stale_seconds = config.getint("grid_meter", "stale_seconds", fallback=20)
-        self.last_updates: Dict[str, float] = {}
-        self.stop_event = threading.Event()
+        product_name = config.get("grid_meter", "product_name", fallback="MQTT IR Grid Meter")
+        custom_name = config.get("grid_meter", "custom_name", fallback="Electric Meter IR")
+        device_instance = config.getint("grid_meter", "device_instance", fallback=40)
 
         dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
-        self.mainloop = GLib.MainLoop()
         service_name = config.get("grid_meter", "service_name", fallback="com.victronenergy.grid.mqtt_ir_grid_meter")
         self.service = VeDbusService(service_name, register=False)
-
-        self._add_static_paths()
-        self.service.register()
-        self.topic_map = self._build_topic_map()
-
-    def run(self) -> None:
-        print("mqtt-grid-meter {} starting with delayed D-Bus registration".format(VERSION), flush=True)
-        signal.signal(signal.SIGTERM, self._stop)
-        signal.signal(signal.SIGINT, self._stop)
-        GLib.timeout_add_seconds(1, self._check_stale)
-        thread = threading.Thread(target=self._mqtt_worker, name="mqtt-worker")
-        thread.daemon = True
-        thread.start()
-        self.mainloop.run()
-
-    def _add_static_paths(self) -> None:
-        product_name = self.config.get("grid_meter", "product_name", fallback="MQTT IR Grid Meter")
-        custom_name = self.config.get("grid_meter", "custom_name", fallback="Electric Meter IR")
-        device_instance = self.config.getint("grid_meter", "device_instance", fallback=40)
 
         self.service.add_path("/Mgmt/ProcessName", __file__)
         self.service.add_path("/Mgmt/ProcessVersion", VERSION)
@@ -125,15 +117,38 @@ class GridMeterService:
         self.service.add_path("/Position", 0)
         self.service.add_path("/Role", "grid")
         self.service.add_path("/Serial", "electric-meter-ir")
-        self.service.add_path("/Ac/Power", None)
-        self.service.add_path("/Ac/Frequency", None)
-        self.service.add_path("/Ac/Energy/Forward", None)
-        self.service.add_path("/Ac/Energy/Reverse", None)
+        for path in REGISTERED_DBUS_PATHS:
+            self.service.add_path(path, None)
+        self.service.register()
 
-        for phase in ("L1", "L2", "L3"):
-            self.service.add_path("/Ac/%s/Power" % phase, None)
-            self.service.add_path("/Ac/%s/Voltage" % phase, None)
-            self.service.add_path("/Ac/%s/Current" % phase, None)
+    def set_value(self, path: str, value: Optional[float]) -> None:
+        self.service[path] = value
+
+    def set_connected(self, connected: bool) -> None:
+        self.service["/Connected"] = 1 if connected else 0
+
+
+class GridMeterService:
+    def __init__(self, config: configparser.ConfigParser, backend: Optional[MeterBackend] = None) -> None:
+        self.config = config
+        self.topic_prefix = config.get("mqtt", "topic_prefix", fallback="electric-meter-ir").strip("/")
+        self.stale_seconds = config.getint("grid_meter", "stale_seconds", fallback=20)
+        self.last_updates: Dict[str, float] = {}
+        self.stop_event = threading.Event()
+
+        self.backend: MeterBackend = backend if backend is not None else DbusMeterBackend(config)
+        self.mainloop = GLib.MainLoop()
+        self.topic_map = self._build_topic_map()
+
+    def run(self) -> None:
+        print("mqtt-grid-meter {} starting with delayed D-Bus registration".format(VERSION), flush=True)
+        signal.signal(signal.SIGTERM, self._stop)
+        signal.signal(signal.SIGINT, self._stop)
+        GLib.timeout_add_seconds(1, self._check_stale)
+        thread = threading.Thread(target=self._mqtt_worker, name="mqtt-worker")
+        thread.daemon = True
+        thread.start()
+        self.mainloop.run()
 
     def _mqtt_worker(self) -> None:
         while not self.stop_event.is_set():
@@ -186,15 +201,15 @@ class GridMeterService:
             if time.monotonic() - received_at > self.stale_seconds:
                 return False
             self.last_updates[path] = received_at
-        self.service[path] = value
+        self.backend.set_value(path, value)
         if path == POWER_PATH:
-            self.service["/Connected"] = 1
+            self.backend.set_connected(True)
         return False
 
     def _invalidate_meter(self) -> bool:
-        self.service["/Connected"] = 0
+        self.backend.set_connected(False)
         for path in INSTANTANEOUS_PATHS:
-            self.service[path] = None
+            self.backend.set_value(path, None)
         self.last_updates.clear()
         return False
 
@@ -206,7 +221,7 @@ class GridMeterService:
         else:
             for path, received_at in list(self.last_updates.items()):
                 if now - received_at > self.stale_seconds:
-                    self.service[path] = None
+                    self.backend.set_value(path, None)
                     del self.last_updates[path]
         return True
 
