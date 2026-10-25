@@ -5,7 +5,7 @@ import struct
 import sys
 import types
 import unittest
-from typing import Callable
+from typing import Any, Callable, Dict
 from unittest import mock
 
 
@@ -175,9 +175,8 @@ class GridMeterServiceTests(unittest.TestCase):
         self.meter.service = {"/Connected": 0}
         self.meter.last_updates = {}
         self.meter.stale_seconds = 20
-        self.meter.power_multiplier = 1.0
         self.meter.topic_map = {
-            "meter/power": (mqtt_grid_meter.POWER_PATH, self.meter._power),
+            "meter/power": (mqtt_grid_meter.POWER_PATH, mqtt_grid_meter.converter_for("power", 1.0)),
         }
 
     def test_retained_power_does_not_connect_meter(self) -> None:
@@ -304,7 +303,152 @@ class GridMeterServiceTests(unittest.TestCase):
         for payload in ("nan", "inf", "-inf"):
             with self.subTest(payload=payload):
                 with self.assertRaises(ValueError):
-                    self.meter._float(payload)
+                    mqtt_grid_meter.converter_for("float", 1.0)(payload)
+
+
+class MappingTests(unittest.TestCase):
+    def load(self, config_dict: Dict[str, Dict[str, Any]]) -> mqtt_grid_meter.TopicMap:
+        config = configparser.ConfigParser()
+        config.read_dict(config_dict)
+        return mqtt_grid_meter.load_mappings(
+            config, mqtt_grid_meter.REGISTERED_DBUS_PATHS, float(config["grid_meter"].get("power_multiplier", "1"))
+        )
+
+    def example_config(self) -> mqtt_grid_meter.TopicMap:
+        config_path = os.path.join(os.path.dirname(__file__), "config.example.ini")
+        config = mqtt_grid_meter.load_config(config_path)
+        return mqtt_grid_meter.load_mappings(
+            config, mqtt_grid_meter.REGISTERED_DBUS_PATHS, config.getfloat("grid_meter", "power_multiplier")
+        )
+
+    def test_no_mapping_sections_use_default_esphome_topics(self) -> None:
+        topic_map = self.load({"mqtt": {"topic_prefix": "electric-meter-ir", "host": "x"}, "grid_meter": {}})
+
+        self.assertEqual(len(topic_map), len(mqtt_grid_meter.DEFAULT_MAPPINGS))
+        path, active_power = topic_map["electric-meter-ir/sensor/active_power/state"]
+        self.assertEqual(path, "/Ac/Power")
+        self.assertEqual(active_power("-5000"), -5000.0)
+        path, energy_import = topic_map["electric-meter-ir/sensor/total_energy_import/state"]
+        self.assertEqual(path, "/Ac/Energy/Forward")
+        self.assertEqual(energy_import("123.4"), 123.4)
+
+    def test_default_topics_follow_topic_prefix(self) -> None:
+        topic_map = self.load({"mqtt": {"topic_prefix": "other/prefix", "host": "x"}, "grid_meter": {}})
+
+        self.assertIn("other/prefix/sensor/active_power/state", topic_map)
+
+    def test_example_config_without_mapped_sections_still_builds_defaults(self) -> None:
+        topic_map = self.example_config()
+
+        self.assertIn("electric-meter-ir/sensor/active_power/state", topic_map)
+        self.assertIn("electric-meter-ir/sensor/grid_frequency/state", topic_map)
+
+    def test_explicit_mapping_sections_are_used(self) -> None:
+        topic_map = self.load(
+            {
+                "mqtt": {"topic_prefix": "electric-meter-ir", "host": "x"},
+                "grid_meter": {"power_multiplier": "-1"},
+                "mapping.main_power": {
+                    "topic": "electric-meter-ir/sensor/active_power/state",
+                    "dbus_path": "/Ac/Power",
+                    "converter": "power",
+                },
+                "mapping.import": {
+                    "topic": "electric-meter-ir/sensor/total_energy_import/state",
+                    "dbus_path": "/Ac/Energy/Forward",
+                    "converter": "float",
+                },
+            }
+        )
+
+        self.assertEqual(len(topic_map), 2)
+        path, converter = topic_map["electric-meter-ir/sensor/active_power/state"]
+        self.assertEqual(path, "/Ac/Power")
+        self.assertEqual(converter("-5000"), 5000.0)
+        path, converter = topic_map["electric-meter-ir/sensor/total_energy_import/state"]
+        self.assertEqual(path, "/Ac/Energy/Forward")
+        self.assertEqual(converter("123.4"), 123.4)
+
+    def test_converter_defaults_to_float(self) -> None:
+        topic_map = self.load(
+            {
+                "mqtt": {"topic_prefix": "electric-meter-ir", "host": "x"},
+                "grid_meter": {},
+                "mapping.freq": {
+                    "topic": "electric-meter-ir/sensor/grid_frequency/state",
+                    "dbus_path": "/Ac/Frequency",
+                },
+            }
+        )
+
+        path, converter = topic_map["electric-meter-ir/sensor/grid_frequency/state"]
+        self.assertEqual(path, "/Ac/Frequency")
+        self.assertEqual(converter("50.1"), 50.1)
+
+    def test_duplicate_topics_are_rejected(self) -> None:
+        config = {
+            "mqtt": {"topic_prefix": "electric-meter-ir", "host": "x"},
+            "grid_meter": {},
+            "mapping.a": {"topic": "electric-meter-ir/sensor/active_power/state", "dbus_path": "/Ac/Power"},
+            "mapping.b": {"topic": "electric-meter-ir/sensor/active_power/state", "dbus_path": "/Ac/L1/Power"},
+        }
+
+        with self.assertRaisesRegex(ValueError, "Duplicate mapping topic"):
+            self.load(config)
+
+    def test_unknown_converter_is_rejected(self) -> None:
+        config = {
+            "mqtt": {"topic_prefix": "electric-meter-ir", "host": "x"},
+            "grid_meter": {},
+            "mapping.a": {
+                "topic": "electric-meter-ir/sensor/active_power/state",
+                "dbus_path": "/Ac/Power",
+                "converter": "int",
+            },
+        }
+
+        with self.assertRaisesRegex(ValueError, "Unknown converter"):
+            self.load(config)
+
+    def test_unregistered_dbus_path_is_rejected(self) -> None:
+        config = {
+            "mqtt": {"topic_prefix": "electric-meter-ir", "host": "x"},
+            "grid_meter": {},
+            "mapping.a": {"topic": "electric-meter-ir/sensor/active_power/state", "dbus_path": "/Dc/Power"},
+        }
+
+        with self.assertRaisesRegex(ValueError, "not a registered D-Bus path"):
+            self.load(config)
+
+    def test_missing_topic_is_rejected(self) -> None:
+        config = {
+            "mqtt": {"topic_prefix": "electric-meter-ir", "host": "x"},
+            "grid_meter": {},
+            "mapping.a": {"dbus_path": "/Ac/Power"},
+        }
+
+        with self.assertRaisesRegex(ValueError, "missing the topic option"):
+            self.load(config)
+
+    def test_missing_dbus_path_is_rejected(self) -> None:
+        config = {
+            "mqtt": {"topic_prefix": "electric-meter-ir", "host": "x"},
+            "grid_meter": {},
+            "mapping.a": {"topic": "electric-meter-ir/sensor/active_power/state"},
+        }
+
+        with self.assertRaisesRegex(ValueError, "missing the dbus_path option"):
+            self.load(config)
+
+    def test_topic_outside_topic_prefix_is_rejected(self) -> None:
+        config = {
+            "mqtt": {"topic_prefix": "electric-meter-ir", "host": "x"},
+            "grid_meter": {},
+            "mapping.a": {"topic": "other-device/sensor/active_power/state", "dbus_path": "/Ac/Power"},
+        }
+
+        with self.assertRaisesRegex(ValueError, "topic_prefix"):
+            self.load(config)
 
 
 class SimpleMqttClientTests(unittest.TestCase):

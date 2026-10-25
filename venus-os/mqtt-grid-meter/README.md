@@ -220,6 +220,12 @@ electric-meter-ir/sensor/current_l3/state
 electric-meter-ir/sensor/grid_frequency/state
 ```
 
+These mappings are the built-in defaults. They can be overridden per topic with
+`[mapping.*]` sections in `config.ini` (each needs `topic`, `dbus_path`, and the
+optional `converter` — `float` or `power`, where `power` applies
+`power_multiplier`); any mapping section then replaces the whole default list.
+See the comments and `DEFAULT_MAPPINGS` in `mqtt_grid_meter.py`.
+
 ## Power Sign
 
 Victron grid meters normally use positive power for grid import and negative power for export. If the Cerbo shows the sign reversed, set this in `config.ini`:

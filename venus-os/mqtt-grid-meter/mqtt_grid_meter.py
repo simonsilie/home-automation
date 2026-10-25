@@ -24,7 +24,7 @@ PayloadConverter = Callable[[str], float]
 TopicTarget = Tuple[str, PayloadConverter]
 TopicMap = Dict[str, TopicTarget]
 
-VERSION = "0.1.3"
+VERSION = "0.1.4"
 
 POWER_PATH = "/Ac/Power"
 INSTANTANEOUS_PATHS = (
@@ -41,12 +41,49 @@ INSTANTANEOUS_PATHS = (
     "/Ac/L3/Current",
 )
 
+# Legacy fallback: without [mapping.*] sections these ESPHome sensor topics
+# are derived from [mqtt] topic_prefix. The list must match electric_meter_ir.yaml.
+DEFAULT_MAPPINGS = (
+    ("active_power", POWER_PATH, "power"),
+    ("active_power_l1", "/Ac/L1/Power", "power"),
+    ("active_power_l2", "/Ac/L2/Power", "power"),
+    ("active_power_l3", "/Ac/L3/Power", "power"),
+    ("total_energy_import", "/Ac/Energy/Forward", "float"),
+    ("total_energy_export", "/Ac/Energy/Reverse", "float"),
+    ("voltage_l1", "/Ac/L1/Voltage", "float"),
+    ("voltage_l2", "/Ac/L2/Voltage", "float"),
+    ("voltage_l3", "/Ac/L3/Voltage", "float"),
+    ("current_l1", "/Ac/L1/Current", "float"),
+    ("current_l2", "/Ac/L2/Current", "float"),
+    ("current_l3", "/Ac/L3/Current", "float"),
+    ("grid_frequency", "/Ac/Frequency", "float"),
+)
+
+# Everything _add_static_paths registers; mapping dbus_path options must be among these.
+REGISTERED_DBUS_PATHS = ("/Ac/Energy/Forward", "/Ac/Energy/Reverse") + INSTANTANEOUS_PATHS
+
+
+def converter_for(name: str, power_multiplier: float) -> PayloadConverter:
+    def plain_float(payload: str) -> float:
+        value = float(payload.strip())
+        if not math.isfinite(value):
+            raise ValueError("non-finite meter value")
+        return value
+
+    def power(payload: str) -> float:
+        return plain_float(payload) * power_multiplier
+
+    if name == "float":
+        return plain_float
+    if name == "power":
+        return power
+    raise ValueError("Unknown converter %r (expected 'float' or 'power')" % name)
+
 
 class GridMeterService:
     def __init__(self, config: configparser.ConfigParser) -> None:
         self.config = config
         self.topic_prefix = config.get("mqtt", "topic_prefix", fallback="electric-meter-ir").strip("/")
-        self.power_multiplier = config.getfloat("grid_meter", "power_multiplier", fallback=1.0)
         self.stale_seconds = config.getint("grid_meter", "stale_seconds", fallback=20)
         self.last_updates: Dict[str, float] = {}
         self.stop_event = threading.Event()
@@ -97,24 +134,6 @@ class GridMeterService:
             self.service.add_path("/Ac/%s/Power" % phase, None)
             self.service.add_path("/Ac/%s/Voltage" % phase, None)
             self.service.add_path("/Ac/%s/Current" % phase, None)
-
-    def _build_topic_map(self) -> TopicMap:
-        prefix = self.topic_prefix
-        return {
-            "%s/sensor/active_power/state" % prefix: ("/Ac/Power", self._power),
-            "%s/sensor/active_power_l1/state" % prefix: ("/Ac/L1/Power", self._power),
-            "%s/sensor/active_power_l2/state" % prefix: ("/Ac/L2/Power", self._power),
-            "%s/sensor/active_power_l3/state" % prefix: ("/Ac/L3/Power", self._power),
-            "%s/sensor/total_energy_import/state" % prefix: ("/Ac/Energy/Forward", self._float),
-            "%s/sensor/total_energy_export/state" % prefix: ("/Ac/Energy/Reverse", self._float),
-            "%s/sensor/voltage_l1/state" % prefix: ("/Ac/L1/Voltage", self._float),
-            "%s/sensor/voltage_l2/state" % prefix: ("/Ac/L2/Voltage", self._float),
-            "%s/sensor/voltage_l3/state" % prefix: ("/Ac/L3/Voltage", self._float),
-            "%s/sensor/current_l1/state" % prefix: ("/Ac/L1/Current", self._float),
-            "%s/sensor/current_l2/state" % prefix: ("/Ac/L2/Current", self._float),
-            "%s/sensor/current_l3/state" % prefix: ("/Ac/L3/Current", self._float),
-            "%s/sensor/grid_frequency/state" % prefix: ("/Ac/Frequency", self._float),
-        }
 
     def _mqtt_worker(self) -> None:
         while not self.stop_event.is_set():
@@ -195,14 +214,51 @@ class GridMeterService:
         self.stop_event.set()
         self.mainloop.quit()
 
-    def _float(self, payload: str) -> float:
-        value = float(payload.strip())
-        if not math.isfinite(value):
-            raise ValueError("non-finite meter value")
-        return value
+    def _build_topic_map(self) -> TopicMap:
+        return load_mappings(
+            self.config,
+            REGISTERED_DBUS_PATHS,
+            self.config.getfloat("grid_meter", "power_multiplier", fallback=1.0),
+        )
 
-    def _power(self, payload: str) -> float:
-        return self._float(payload) * self.power_multiplier
+
+def load_mappings(config: configparser.ConfigParser, registered_paths: tuple, power_multiplier: float) -> TopicMap:
+    """Resolve [mapping.*] sections into {topic: (dbus_path, converter)}.
+
+    Without mapping sections the default ESPHome sensor topics for
+    [mqtt] topic_prefix are used, matching historic behaviour.
+    """
+    prefix = config.get("mqtt", "topic_prefix", fallback="electric-meter-ir").strip("/")
+    sections = [name for name in config.sections() if name.startswith("mapping.")]
+    if not sections:
+        entries = [("%s/sensor/%s/state" % (prefix, suffix), path, conv) for suffix, path, conv in DEFAULT_MAPPINGS]
+    else:
+        entries = []
+        for name in sections:
+            topic = config.get(name, "topic", fallback="").strip("/")
+            if not topic:
+                raise ValueError("[%s] is missing the topic option" % name)
+            if not topic.startswith(prefix + "/"):
+                raise ValueError("Mapping topic %r must live under the topic_prefix %r" % (topic, prefix))
+            path = config.get(name, "dbus_path", fallback="").strip()
+            if not path:
+                raise ValueError("[%s] is missing the dbus_path option" % name)
+            if path not in registered_paths:
+                raise ValueError("[%s] dbus_path %r is not a registered D-Bus path" % (name, path))
+            entries.append(
+                (
+                    topic,
+                    path,
+                    config.get(name, "converter", fallback="float").strip(),
+                )
+            )
+
+    topic_map: TopicMap = {}
+    for topic, path, converter_name in entries:
+        if topic in topic_map:
+            raise ValueError("Duplicate mapping topic %r" % topic)
+        topic_map[topic] = (path, converter_for(converter_name, power_multiplier))
+    return topic_map
 
 
 def load_config(path: str) -> configparser.ConfigParser:
