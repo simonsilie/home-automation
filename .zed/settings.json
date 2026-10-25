@@ -1,0 +1,10 @@
+{
+  "languages": {
+    "Python": {
+      // `gi`/`vedbus`/`dbus` exist only on the Venus OS target and are faked in
+      // tests; pyrefly's ignore-missing-imports covers them (pyproject.toml),
+      // Pyright does not, so it stays disabled for this workspace.
+      "language_servers": ["!pyright", "pyrefly", "!basedpyright"]
+    }
+  }
+}
