@@ -7,7 +7,7 @@ import os
 import ssl
 import sys
 import threading
-from typing import Optional, Tuple
+from typing import Callable, Optional, Tuple
 
 sys.path.insert(0, "/opt/victronenergy/dbus-systemcalc-py/ext/velib_python")
 
@@ -72,11 +72,13 @@ class GridMeterService:
         """Convert one MQTT payload, or None when it must be ignored."""
         return resolve_message(self.topic_map, topic, payload, retained)
 
-    def create_mqtt_client(self) -> SimpleMqttClient:
+    def create_mqtt_client(
+        self, ssl_context_factory: Callable[..., ssl.SSLContext] = ssl.create_default_context
+    ) -> SimpleMqttClient:
         mqtt = self.settings.mqtt
         ssl_context = None
         if mqtt.tls:
-            ssl_context = ssl.create_default_context(cafile=mqtt.ca_file)
+            ssl_context = ssl_context_factory(cafile=mqtt.ca_file)
             ssl_context.minimum_version = ssl.TLSVersion.TLSv1_2
         client_id = "venus-mqtt-grid-meter-%s" % os.uname().nodename
         return SimpleMqttClient(

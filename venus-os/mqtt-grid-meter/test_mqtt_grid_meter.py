@@ -7,13 +7,42 @@ import threading
 import types
 import unittest
 from typing import Any, Callable, Dict, Optional
-from unittest import mock
+
+
+class FakeMainLoop:
+    """Faked GLib.MainLoop: run/quit toggle a flag tests can observe."""
+
+    def __init__(self) -> None:
+        self.running = False
+
+    def run(self) -> None:
+        self.running = True
+
+    def quit(self) -> None:
+        self.running = False
 
 
 class FakeGLib:
-    @staticmethod
-    def idle_add(callback: Callable[..., object], *args: object) -> object:
-        return callback(*args)
+    """Faked GLib: idle_add queues; tests drain the queue via flush()."""
+
+    def __init__(self) -> None:
+        self.pending: list = []
+        self.loop = FakeMainLoop()
+
+    def MainLoop(self) -> "FakeMainLoop":
+        return self.loop
+
+    def idle_add(self, callback: Callable[..., object], *args: object) -> object:
+        self.pending.append((callback, args))
+        return None
+
+    def timeout_add_seconds(self, interval: int, callback: Callable[..., bool]) -> object:
+        return None
+
+    def flush(self) -> None:
+        pending, self.pending = self.pending, []
+        for callback, args in pending:
+            callback(*args)
 
 
 dbus_module = types.ModuleType("dbus")
@@ -74,24 +103,44 @@ class DictMeterBackend:
         self.values["/Connected"] = 1 if connected else 0
 
 
+class FakeClock:
+    """Injected monotonic clock: tests move self.now forward."""
+
+    def __init__(self, now: float = 0.0) -> None:
+        self.now = now
+
+    def __call__(self) -> float:
+        return self.now
+
+
+class RecordingCertFactory:
+    """Injected ssl.create_default_context double: records cafile, returns a real TLS context."""
+
+    def __init__(self) -> None:
+        self.ca_files: list = []
+        self.error: Optional[Exception] = None
+
+    def __call__(self, cafile: Optional[str] = None) -> ssl.SSLContext:
+        self.ca_files.append(cafile)
+        if self.error is not None:
+            raise self.error
+        return ssl.create_default_context()
+
+
 class MqttConfigTests(unittest.TestCase):
     def setUp(self) -> None:
         self.meter = mqtt_grid_meter.GridMeterService.__new__(mqtt_grid_meter.GridMeterService)
-        self.meter.settings = self.settings({"mqtt": {"host": "broker.example.com"}})
-        self.default_context_factory = ssl.create_default_context
-        patcher = mock.patch.object(mqtt_grid_meter.ssl, "create_default_context")
-        self.create_context = patcher.start()
-        self.addCleanup(patcher.stop)
+        self.factory = RecordingCertFactory()
 
     @staticmethod
     def settings(config_dict: ConfigDict) -> BridgeConfig:
         return BridgeConfig.from_config(configparser_from(config_dict))
 
-    def client_with(self, **mqtt_overrides: str) -> "SimpleMqttClient":
+    def client_with(self, factory: Optional[Callable[..., ssl.SSLContext]] = None, **mqtt_overrides: str) -> "SimpleMqttClient":
         self.meter.settings = self.settings(
             {"mqtt": {**{"host": "broker.example.com"}, **mqtt_overrides}, "grid_meter": {}}
         )
-        return self.meter.create_mqtt_client()
+        return self.meter.create_mqtt_client(factory if factory is not None else self.factory)
 
     def test_existing_config_defaults_to_plaintext_1883(self) -> None:
         client = self.client_with()
@@ -102,21 +151,21 @@ class MqttConfigTests(unittest.TestCase):
         self.assertIsNone(client.username)
         self.assertIsNone(client.password)
         self.assertEqual(client.keepalive, 60)
-        self.create_context.assert_not_called()
+        self.assertEqual(self.factory.ca_files, [])
 
     def test_explicit_plaintext_without_port_defaults_to_1883(self) -> None:
         client = self.client_with(tls="false")
 
         self.assertEqual(client.port, 1883)
         self.assertIsNone(client.ssl_context)
-        self.create_context.assert_not_called()
+        self.assertEqual(self.factory.ca_files, [])
 
     def test_legacy_config_with_explicit_1883_stays_plaintext(self) -> None:
         client = self.client_with(port="1883")
 
         self.assertEqual(client.port, 1883)
         self.assertIsNone(client.ssl_context)
-        self.create_context.assert_not_called()
+        self.assertEqual(self.factory.ca_files, [])
 
     def test_explicit_plaintext_ignores_ca_and_preserves_settings(self) -> None:
         client = self.client_with(
@@ -128,27 +177,25 @@ class MqttConfigTests(unittest.TestCase):
         self.assertEqual(client.username, "reader")
         self.assertEqual(client.password, "test-only")
         self.assertEqual(client.keepalive, 30)
-        self.create_context.assert_not_called()
+        self.assertEqual(self.factory.ca_files, [])
 
     def test_tls_defaults_to_8883_and_system_trust(self) -> None:
         client = self.client_with(tls="true")
 
         self.assertEqual(client.port, 8883)
-        self.create_context.assert_called_once_with(cafile=None)
-        self.assertIs(client.ssl_context, self.create_context.return_value)
-        assert client.ssl_context is not None
-        self.assertEqual(client.ssl_context.minimum_version, ssl.TLSVersion.TLSv1_2)
+        self.assertEqual(self.factory.ca_files, [None])
+        self.assertIsNotNone(client.ssl_context)
 
     def test_tls_loads_configured_ca_file(self) -> None:
         client = self.client_with(tls="true", ca_file=" /data/etc/mqtt-grid-meter/broker-ca.pem ")
 
-        self.create_context.assert_called_once_with(cafile="/data/etc/mqtt-grid-meter/broker-ca.pem")
-        self.assertIs(client.ssl_context, self.create_context.return_value)
+        self.assertEqual(self.factory.ca_files, ["/data/etc/mqtt-grid-meter/broker-ca.pem"])
+        self.assertIsNotNone(client.ssl_context)
 
     def test_blank_ca_file_uses_system_trust(self) -> None:
         self.client_with(tls="true", ca_file="  ")
 
-        self.create_context.assert_called_once_with(cafile=None)
+        self.assertEqual(self.factory.ca_files, [None])
 
     def test_explicit_ports_are_preserved_independently_of_tls(self) -> None:
         for tls in ("true", "false"):
@@ -158,27 +205,21 @@ class MqttConfigTests(unittest.TestCase):
                 self.assertEqual(client.port, 28883)
 
     def test_invalid_ca_fails_without_plaintext_fallback(self) -> None:
-        client_of_errors = []
         for error in (FileNotFoundError("CA file missing"), ssl.SSLError("invalid CA file")):
             with self.subTest(error=type(error).__name__):
-                self.create_context.side_effect = error
-                with mock.patch.object(mqtt_grid_meter, "SimpleMqttClient") as client_class:
-                    with self.assertRaises(type(error)) as raised:
-                        client_of_errors.append(self.client_with(tls="true", ca_file="/missing/ca.pem"))
-                    self.assertIs(raised.exception, error)
-                    client_class.assert_not_called()
-        self.assertEqual(client_of_errors, [])
+                self.factory.error = error
+                with self.assertRaises(type(error)) as raised:
+                    self.client_with(tls="true", ca_file="/missing/ca.pem")
+                self.assertIs(raised.exception, error)
 
     def test_invalid_tls_setting_is_not_treated_as_plaintext(self) -> None:
         with self.assertRaises(ValueError):
             self.client_with(tls="invalid")
 
-        self.create_context.assert_not_called()
+        self.assertEqual(self.factory.ca_files, [])
 
     def test_real_default_context_requires_certificate_and_hostname_verification(self) -> None:
-        self.create_context.side_effect = self.default_context_factory
-
-        client = self.client_with(tls="true")
+        client = self.client_with(ssl.create_default_context, tls="true")
 
         assert client.ssl_context is not None
         self.assertTrue(client.ssl_context.check_hostname)
@@ -186,16 +227,14 @@ class MqttConfigTests(unittest.TestCase):
         self.assertEqual(client.ssl_context.minimum_version, ssl.TLSVersion.TLSv1_2)
 
     def test_example_selects_tls_dns_hostname_and_port_8883(self) -> None:
-        config = lint_free_example_config()
+        self.meter.settings = BridgeConfig.from_config(lint_free_example_config())
 
-        self.meter.settings = BridgeConfig.from_config(config)
-
-        client = self.meter.create_mqtt_client()
+        client = self.meter.create_mqtt_client(self.factory)
 
         self.assertEqual(client.host, "mqtt.example.com")
         self.assertEqual(client.port, 8883)
-        self.assertIs(client.ssl_context, self.create_context.return_value)
-        self.create_context.assert_called_once_with(cafile=None)
+        self.assertEqual(self.factory.ca_files, [None])
+        self.assertIsNotNone(client.ssl_context)
 
 
 class MeterStateTests(unittest.TestCase):
@@ -333,9 +372,6 @@ class AppGlueTests(unittest.TestCase):
     """GLib dispatch wiring around the pure meter state."""
 
     def setUp(self) -> None:
-        patcher = mock.patch.object(app_module, "GLib")
-        self.GLib = patcher.start()
-        self.addCleanup(patcher.stop)
         self.backend = DictMeterBackend()
         self.service: mqtt_grid_meter.GridMeterService
         self.service = mqtt_grid_meter.GridMeterService.__new__(mqtt_grid_meter.GridMeterService)
@@ -345,47 +381,54 @@ class AppGlueTests(unittest.TestCase):
         self.service.meter = meter_module.MeterState(self.backend, 20)
         self.service.settings = MqttConfigTests.settings({"mqtt": {"host": "x"}, "grid_meter": {}})
         self.service.stop_event = threading.Event()
-        self.app = app_module.BridgeApp(self.service)
+        self.glib = FakeGLib()
+        self.clock = FakeClock(100)
+        self.app = app_module.BridgeApp(self.service, self.glib, self.clock)
 
     def test_message_is_dispatched_with_receipt_time(self) -> None:
-        with (
-            mock.patch.object(app_module.GLib, "idle_add") as queued,
-            mock.patch.object(app_module.time, "monotonic", return_value=100),
+        self.app._on_mqtt_message("meter/power", "-5000", retained=False)
+        self.assertNotIn(meter_module.POWER_PATH, self.backend.values)
+
+        self.glib.flush()
+
+        self.assertEqual(self.backend.values[meter_module.POWER_PATH], -5000.0)
+        self.assertEqual(self.backend.values["/Connected"], 1)
+        self.assertEqual(self.service.meter.last_updates[meter_module.POWER_PATH], 100)
+
+    def test_ignored_messages_are_not_queued(self) -> None:
+        for topic, payload, retained in (
+            ("meter/other", "-5000", False),
+            ("meter/power", "-5000", True),
+            ("meter/power", "bogus", False),
         ):
-            self.app._on_mqtt_message("meter/power", "-5000", retained=False)
+            self.app._on_mqtt_message(topic, payload, retained)
 
-        queued.assert_called_once_with(self.app._update_value, meter_module.POWER_PATH, -5000.0, 100)
-
-    def test_ignored_message_does_not_queue(self) -> None:
-        with mock.patch.object(app_module.GLib, "idle_add") as queued:
-            for topic, payload, retained in (
-                ("meter/other", "-5000", False),
-                ("meter/power", "-5000", True),
-                ("meter/power", "bogus", False),
-            ):
-                self.app._on_mqtt_message(topic, payload, retained)
-
-        queued.assert_not_called()
+        self.glib.flush()
+        self.assertEqual(self.glib.pending, [])
+        self.assertNotIn(meter_module.POWER_PATH, self.backend.values)
 
     def test_queued_sample_uses_receipt_time_not_main_loop_time(self) -> None:
-        with (
-            mock.patch.object(app_module.GLib, "idle_add", return_value=None) as queued,
-            mock.patch.object(app_module.time, "monotonic", return_value=100),
-        ):
-            self.app._on_mqtt_message("meter/power", "-500", retained=False)
-        with mock.patch.object(app_module.time, "monotonic", return_value=121):
-            queued.call_args.args[0](*queued.call_args.args[1:])
+        self.app._on_mqtt_message("meter/power", "-500", retained=False)
+        self.assertNotIn(meter_module.POWER_PATH, self.backend.values)
+
+        self.clock.now = 121
+        self.glib.flush()
 
         self.assertEqual(self.backend.values["/Connected"], 0)
         self.assertNotIn(meter_module.POWER_PATH, self.backend.values)
         self.assertEqual(self.service.meter.last_updates, {})
 
-    def test_check_stale_feeds_monotonic_time_into_the_state(self) -> None:
-        self.service.meter = mock.Mock(spec=meter_module.MeterState)
-        with mock.patch.object(app_module.time, "monotonic", return_value=1234):
-            self.assertTrue(self.app._check_stale())
+    def test_check_stale_feeds_clock_time_into_the_state(self) -> None:
+        self.app._on_mqtt_message("meter/power", "-500", retained=False)
+        self.glib.flush()
+        self.assertEqual(self.backend.values["/Connected"], 1)
 
-        self.service.meter.check_stale.assert_called_once_with(1234)
+        self.clock.now = 121
+        self.assertTrue(self.app._check_stale())
+
+        self.assertEqual(self.backend.values["/Connected"], 0)
+        self.assertIsNone(self.backend.values[meter_module.POWER_PATH])
+        self.assertEqual(self.service.meter.last_updates, {})
 
     def test_invalidate_clears_meter_state(self) -> None:
         self.app._update_value(meter_module.POWER_PATH, -500, 100)
