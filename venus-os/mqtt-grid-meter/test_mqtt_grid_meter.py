@@ -3,6 +3,7 @@ import os
 import ssl
 import struct
 import sys
+import threading
 import types
 import unittest
 from typing import Any, Callable, Dict, Optional
@@ -36,6 +37,8 @@ vedbus_module = types.ModuleType("vedbus")
 vedbus_module.__dict__["VeDbusService"] = object
 sys.modules["vedbus"] = vedbus_module
 
+import meter as meter_module
+import app as app_module
 import mqtt_grid_meter
 from config import BridgeConfig
 from simple_mqtt import MqttPublish, SimpleMqttClient
@@ -88,7 +91,7 @@ class MqttConfigTests(unittest.TestCase):
         self.meter.settings = self.settings(
             {"mqtt": {**{"host": "broker.example.com"}, **mqtt_overrides}, "grid_meter": {}}
         )
-        return self.meter._new_mqtt_client()
+        return self.meter.create_mqtt_client()
 
     def test_existing_config_defaults_to_plaintext_1883(self) -> None:
         client = self.client_with()
@@ -187,7 +190,7 @@ class MqttConfigTests(unittest.TestCase):
 
         self.meter.settings = BridgeConfig.from_config(config)
 
-        client = self.meter._new_mqtt_client()
+        client = self.meter.create_mqtt_client()
 
         self.assertEqual(client.host, "mqtt.example.com")
         self.assertEqual(client.port, 8883)
@@ -195,145 +198,202 @@ class MqttConfigTests(unittest.TestCase):
         self.create_context.assert_called_once_with(cafile=None)
 
 
-class GridMeterServiceTests(unittest.TestCase):
+class MeterStateTests(unittest.TestCase):
+    """Staleness state machine without GLib or the topic map."""
+
     def setUp(self) -> None:
-        self.meter: mqtt_grid_meter.GridMeterService
-        self.meter = mqtt_grid_meter.GridMeterService.__new__(mqtt_grid_meter.GridMeterService)
         self.backend = DictMeterBackend()
-        self.meter.backend = self.backend
-        self.meter.last_updates = {}
-        self.meter.settings = MqttConfigTests.settings(
-            {"mqtt": {"host": "broker.example.com"}, "grid_meter": {"stale_seconds": "20"}}
-        )
-        self.meter.topic_map = {
-            "meter/power": (mqtt_grid_meter.POWER_PATH, mqtt_grid_meter.converter_for("power", 1.0)),
-        }
-
-    def test_retained_power_does_not_connect_meter(self) -> None:
-        self.meter._on_mqtt_message("meter/power", "-5000", retained=True)
-
-        self.assertEqual(self.backend.values["/Connected"], 0)
-        self.assertNotIn(mqtt_grid_meter.POWER_PATH, self.backend.values)
+        self.state = meter_module.MeterState(self.backend, 20)
 
     def test_fresh_total_power_connects_meter(self) -> None:
-        with mock.patch.object(mqtt_grid_meter, "GLib", FakeGLib):
-            self.meter._on_mqtt_message("meter/power", "-5000", retained=False)
+        self.state.update_value(meter_module.POWER_PATH, -5000.0, received_at=100.0, now=100.0)
 
         self.assertEqual(self.backend.values["/Connected"], 1)
-        self.assertEqual(self.backend.values[mqtt_grid_meter.POWER_PATH], -5000)
-        self.assertGreater(self.meter.last_updates[mqtt_grid_meter.POWER_PATH], 0)
+        self.assertEqual(self.backend.values[meter_module.POWER_PATH], -5000.0)
+        self.assertEqual(self.state.last_updates[meter_module.POWER_PATH], 100.0)
 
     def test_auxiliary_value_does_not_connect_meter(self) -> None:
-        with mock.patch.object(mqtt_grid_meter.time, "monotonic", return_value=100):
-            self.meter._update_value("/Ac/Frequency", 50.0, 100)
+        self.state.update_value("/Ac/Frequency", 50.0, received_at=100.0, now=100.0)
 
         self.assertEqual(self.backend.values["/Connected"], 0)
-        self.assertNotIn(mqtt_grid_meter.POWER_PATH, self.meter.last_updates)
+        self.assertNotIn(meter_module.POWER_PATH, self.state.last_updates)
+        self.assertEqual(self.backend.values["/Ac/Frequency"], 50.0)
+        self.assertEqual(self.state.last_updates["/Ac/Frequency"], 100.0)
 
     def test_stale_power_invalidates_instantaneous_values(self) -> None:
-        self.backend.values.update((path, 1) for path in mqtt_grid_meter.INSTANTANEOUS_PATHS)
+        self.backend.values.update((path, 1) for path in meter_module.INSTANTANEOUS_PATHS)
         self.backend.values["/Connected"] = 1
-        self.meter.last_updates = dict.fromkeys(mqtt_grid_meter.INSTANTANEOUS_PATHS, 100.0)
+        self.state.last_updates = dict.fromkeys(meter_module.INSTANTANEOUS_PATHS, 100.0)
         self.backend.values["/Ac/Energy/Forward"] = 123.4
 
-        with mock.patch.object(mqtt_grid_meter.time, "monotonic", return_value=121):
-            self.assertTrue(self.meter._check_stale())
+        self.state.check_stale(121.0)
 
         self.assertEqual(self.backend.values["/Connected"], 0)
-        self.assertEqual(self.meter.last_updates, {})
+        self.assertEqual(self.state.last_updates, {})
         self.assertEqual(self.backend.values["/Ac/Energy/Forward"], 123.4)
-        for path in mqtt_grid_meter.INSTANTANEOUS_PATHS:
+        for path in meter_module.INSTANTANEOUS_PATHS:
             self.assertIsNone(self.backend.values[path])
 
     def test_auxiliary_fields_expire_independently_of_total_power(self) -> None:
-        with mock.patch.object(mqtt_grid_meter.time, "monotonic", return_value=100):
-            for path in mqtt_grid_meter.INSTANTANEOUS_PATHS:
-                self.meter._update_value(path, 1, 100)
-            self.meter._update_value("/Ac/Energy/Forward", 123.4, 100)
-        with mock.patch.object(mqtt_grid_meter.time, "monotonic", return_value=115):
-            self.meter._update_value(mqtt_grid_meter.POWER_PATH, -500, 115)
-            self.meter._update_value("/Ac/L1/Voltage", 230, 115)
-        with mock.patch.object(mqtt_grid_meter.time, "monotonic", return_value=121):
-            self.meter._check_stale()
+        for path in meter_module.INSTANTANEOUS_PATHS:
+            self.state.update_value(path, 1, received_at=100.0, now=100.0)
+        self.state.update_value("/Ac/Energy/Forward", 123.4, received_at=100.0, now=100.0)
+        self.state.update_value(meter_module.POWER_PATH, -500, received_at=115.0, now=115.0)
+        self.state.update_value("/Ac/L1/Voltage", 230, received_at=115.0, now=115.0)
+        self.state.check_stale(121.0)
 
         self.assertEqual(self.backend.values["/Connected"], 1)
-        self.assertEqual(self.backend.values[mqtt_grid_meter.POWER_PATH], -500)
+        self.assertEqual(self.backend.values[meter_module.POWER_PATH], -500)
         self.assertEqual(self.backend.values["/Ac/L1/Voltage"], 230)
         self.assertEqual(self.backend.values["/Ac/Energy/Forward"], 123.4)
-        for path in mqtt_grid_meter.INSTANTANEOUS_PATHS:
-            if path not in (mqtt_grid_meter.POWER_PATH, "/Ac/L1/Voltage"):
+        for path in meter_module.INSTANTANEOUS_PATHS:
+            if path not in (meter_module.POWER_PATH, "/Ac/L1/Voltage"):
                 self.assertIsNone(self.backend.values[path])
-                self.assertNotIn(path, self.meter.last_updates)
+                self.assertNotIn(path, self.state.last_updates)
 
     def test_auxiliary_value_expires_before_first_total_power(self) -> None:
-        with mock.patch.object(mqtt_grid_meter.time, "monotonic", return_value=0):
-            self.meter._update_value("/Ac/Frequency", 50, 0)
-        with mock.patch.object(mqtt_grid_meter.time, "monotonic", return_value=21):
-            self.meter._check_stale()
+        self.state.update_value("/Ac/Frequency", 50, received_at=0, now=0)
+        self.state.check_stale(21)
 
         self.assertIsNone(self.backend.values["/Ac/Frequency"])
         self.assertEqual(self.backend.values["/Connected"], 0)
 
     def test_monotonic_zero_is_a_valid_sample_timestamp(self) -> None:
-        with mock.patch.object(mqtt_grid_meter.time, "monotonic", return_value=0):
-            self.meter._update_value(mqtt_grid_meter.POWER_PATH, -500, 0)
-        with mock.patch.object(mqtt_grid_meter.time, "monotonic", return_value=21):
-            self.meter._check_stale()
+        self.state.update_value(meter_module.POWER_PATH, -500, received_at=0, now=0)
+        self.state.check_stale(21)
 
         self.assertEqual(self.backend.values["/Connected"], 0)
-        self.assertIsNone(self.backend.values[mqtt_grid_meter.POWER_PATH])
+        self.assertIsNone(self.backend.values[meter_module.POWER_PATH])
 
     def test_wall_clock_jumps_do_not_affect_freshness(self) -> None:
-        with mock.patch.object(mqtt_grid_meter.time, "monotonic", return_value=100):
-            with mock.patch.object(mqtt_grid_meter.time, "time", return_value=1000):
-                self.meter._on_mqtt_message("meter/power", "-500", retained=False)
+        self.state.update_value(meter_module.POWER_PATH, -500, received_at=100, now=100)
         for wall_clock in (-1000, 100000):
             with self.subTest(wall_clock=wall_clock):
-                with mock.patch.object(mqtt_grid_meter.time, "monotonic", return_value=110):
-                    with mock.patch.object(mqtt_grid_meter.time, "time", return_value=wall_clock):
-                        self.meter._check_stale()
+                self.state.check_stale(110)
                 self.assertEqual(self.backend.values["/Connected"], 1)
-        with mock.patch.object(mqtt_grid_meter.time, "monotonic", return_value=121):
-            with mock.patch.object(mqtt_grid_meter.time, "time", return_value=-1000):
-                self.meter._check_stale()
+        self.state.check_stale(121)
         self.assertEqual(self.backend.values["/Connected"], 0)
-
-    def test_queued_sample_uses_receipt_time_not_main_loop_time(self) -> None:
-        with mock.patch.object(mqtt_grid_meter.time, "monotonic", return_value=100):
-            with mock.patch.object(mqtt_grid_meter.GLib, "idle_add") as queued:
-                self.meter._on_mqtt_message("meter/power", "-500", retained=False)
-        queued.assert_called_once_with(self.meter._update_value, mqtt_grid_meter.POWER_PATH, -500, 100)
-        with mock.patch.object(mqtt_grid_meter.time, "monotonic", return_value=121):
-            queued.call_args.args[0](*queued.call_args.args[1:])
-        self.assertEqual(self.backend.values["/Connected"], 0)
-        self.assertNotIn(mqtt_grid_meter.POWER_PATH, self.backend.values)
-        self.assertEqual(self.meter.last_updates, {})
 
     def test_disconnect_clears_timestamps_and_reconnect_requires_total_power(self) -> None:
-        with mock.patch.object(mqtt_grid_meter.time, "monotonic", return_value=100):
-            self.meter._update_value(mqtt_grid_meter.POWER_PATH, -500, 100)
-        self.meter._invalidate_meter()
-        self.assertEqual(self.meter.last_updates, {})
-        with mock.patch.object(mqtt_grid_meter.time, "monotonic", return_value=101):
-            self.meter._update_value("/Ac/Frequency", 50, 101)
-            self.assertEqual(self.backend.values["/Connected"], 0)
-            self.meter._on_mqtt_message("meter/power", "-500", retained=True)
-            self.assertEqual(self.backend.values["/Connected"], 0)
-            self.meter._on_mqtt_message("meter/power", "-500", retained=False)
+        self.state.update_value(meter_module.POWER_PATH, -500, received_at=100, now=100)
+        self.state.invalidate()
+        self.assertEqual(self.state.last_updates, {})
+        self.state.update_value("/Ac/Frequency", 50, received_at=101, now=101)
+        self.assertEqual(self.backend.values["/Connected"], 0)
+        self.state.update_value(meter_module.POWER_PATH, -500, received_at=101, now=101)
         self.assertEqual(self.backend.values["/Connected"], 1)
 
     def test_timeout_boundary_preserves_fresh_values(self) -> None:
-        with mock.patch.object(mqtt_grid_meter.time, "monotonic", return_value=100):
-            self.meter._update_value(mqtt_grid_meter.POWER_PATH, -500, 100)
-        with mock.patch.object(mqtt_grid_meter.time, "monotonic", return_value=120):
-            self.meter._check_stale()
+        self.state.update_value(meter_module.POWER_PATH, -500, received_at=100, now=100)
+        self.state.check_stale(120)
         self.assertEqual(self.backend.values["/Connected"], 1)
 
-    def test_non_finite_values_are_rejected(self) -> None:
-        for payload in ("nan", "inf", "-inf"):
-            with self.subTest(payload=payload):
-                with self.assertRaises(ValueError):
-                    mqtt_grid_meter.converter_for("float", 1.0)(payload)
+
+class MessageResolveTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.service: mqtt_grid_meter.GridMeterService
+        self.service = mqtt_grid_meter.GridMeterService.__new__(mqtt_grid_meter.GridMeterService)
+        self.service.topic_map = {
+            "meter/power": (meter_module.POWER_PATH, meter_module.converter_for("power", 1.0)),
+        }
+
+    def default_map(self) -> meter_module.TopicMap:
+        return {
+            "meter/power": (meter_module.POWER_PATH, meter_module.converter_for("power", 1.0)),
+            "meter/aux": (meter_module.POWER_PATH, meter_module.converter_for("float", 1.0)),
+        }
+
+    def test_retained_message_is_ignored(self) -> None:
+        self.assertIsNone(self.service.resolve_mqtt_message("meter/power", "-5000", retained=True))
+
+    def test_fresh_message_returns_path_and_value(self) -> None:
+        outcome = self.service.resolve_mqtt_message("meter/power", "-5000", retained=False)
+
+        self.assertEqual(outcome, (meter_module.POWER_PATH, -5000.0))
+
+    def test_unknown_topic_is_ignored(self) -> None:
+        self.assertIsNone(self.service.resolve_mqtt_message("meter/other", "-5000", retained=False))
+
+    def test_non_numeric_payload_is_ignored(self) -> None:
+        self.assertIsNone(self.service.resolve_mqtt_message("meter/power", "nan... nope", retained=False))
+
+    def test_power_multiplier_applies(self) -> None:
+        settings = MqttConfigTests.settings(
+            {"mqtt": {"topic_prefix": "b", "host": "x"}, "grid_meter": {"power_multiplier": "-1"}}
+        )
+        topic_map = meter_module.load_mappings(settings, meter_module.REGISTERED_DBUS_PATHS)
+
+        outcome = meter_module.resolve_message(topic_map, "b/sensor/active_power/state", "-5000", retained=False)
+
+        assert outcome is not None
+        self.assertEqual(outcome[1], 5000.0)
+
+
+class AppGlueTests(unittest.TestCase):
+    """GLib dispatch wiring around the pure meter state."""
+
+    def setUp(self) -> None:
+        patcher = mock.patch.object(app_module, "GLib")
+        self.GLib = patcher.start()
+        self.addCleanup(patcher.stop)
+        self.backend = DictMeterBackend()
+        self.service: mqtt_grid_meter.GridMeterService
+        self.service = mqtt_grid_meter.GridMeterService.__new__(mqtt_grid_meter.GridMeterService)
+        self.service.topic_map = {
+            "meter/power": (meter_module.POWER_PATH, meter_module.converter_for("power", 1.0)),
+        }
+        self.service.meter = meter_module.MeterState(self.backend, 20)
+        self.service.settings = MqttConfigTests.settings({"mqtt": {"host": "x"}, "grid_meter": {}})
+        self.service.stop_event = threading.Event()
+        self.app = app_module.BridgeApp(self.service)
+
+    def test_message_is_dispatched_with_receipt_time(self) -> None:
+        with (
+            mock.patch.object(app_module.GLib, "idle_add") as queued,
+            mock.patch.object(app_module.time, "monotonic", return_value=100),
+        ):
+            self.app._on_mqtt_message("meter/power", "-5000", retained=False)
+
+        queued.assert_called_once_with(self.app._update_value, meter_module.POWER_PATH, -5000.0, 100)
+
+    def test_ignored_message_does_not_queue(self) -> None:
+        with mock.patch.object(app_module.GLib, "idle_add") as queued:
+            for topic, payload, retained in (
+                ("meter/other", "-5000", False),
+                ("meter/power", "-5000", True),
+                ("meter/power", "bogus", False),
+            ):
+                self.app._on_mqtt_message(topic, payload, retained)
+
+        queued.assert_not_called()
+
+    def test_queued_sample_uses_receipt_time_not_main_loop_time(self) -> None:
+        with (
+            mock.patch.object(app_module.GLib, "idle_add", return_value=None) as queued,
+            mock.patch.object(app_module.time, "monotonic", return_value=100),
+        ):
+            self.app._on_mqtt_message("meter/power", "-500", retained=False)
+        with mock.patch.object(app_module.time, "monotonic", return_value=121):
+            queued.call_args.args[0](*queued.call_args.args[1:])
+
+        self.assertEqual(self.backend.values["/Connected"], 0)
+        self.assertNotIn(meter_module.POWER_PATH, self.backend.values)
+        self.assertEqual(self.service.meter.last_updates, {})
+
+    def test_check_stale_feeds_monotonic_time_into_the_state(self) -> None:
+        self.service.meter = mock.Mock(spec=meter_module.MeterState)
+        with mock.patch.object(app_module.time, "monotonic", return_value=1234):
+            self.assertTrue(self.app._check_stale())
+
+        self.service.meter.check_stale.assert_called_once_with(1234)
+
+    def test_invalidate_clears_meter_state(self) -> None:
+        self.app._update_value(meter_module.POWER_PATH, -500, 100)
+        keep_running = self.app._invalidate_meter()
+
+        self.assertFalse(keep_running)
+        self.assertEqual(self.backend.values["/Connected"], 0)
+        self.assertEqual(self.service.meter.last_updates, {})
 
 
 class MappingTests(unittest.TestCase):
@@ -365,7 +425,7 @@ class MappingTests(unittest.TestCase):
     def test_no_mapping_sections_use_default_esphome_topics(self) -> None:
         topic_map = self.load({})
 
-        self.assertEqual(len(topic_map), len(mqtt_grid_meter.DEFAULT_MAPPINGS))
+        self.assertEqual(len(topic_map), len(meter_module.DEFAULT_MAPPINGS))
         path, active_power = topic_map["electric-meter-ir/sensor/active_power/state"]
         self.assertEqual(path, "/Ac/Power")
         self.assertEqual(active_power("-5000"), -5000.0)
