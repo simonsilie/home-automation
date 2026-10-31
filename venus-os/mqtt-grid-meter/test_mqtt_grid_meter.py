@@ -51,9 +51,13 @@ dbus_glib_module = types.ModuleType("dbus.mainloop.glib")
 dbus_glib_module.__dict__["DBusGMainLoop"] = object
 dbus_mainloop_module.__dict__["glib"] = dbus_glib_module
 dbus_module.__dict__["mainloop"] = dbus_mainloop_module
+dbus_exceptions_module = types.ModuleType("dbus.exceptions")
+dbus_exceptions_module.__dict__["NameExistsException"] = type("NameExistsException", (Exception,), {})
+dbus_module.__dict__["exceptions"] = dbus_exceptions_module
 sys.modules["dbus"] = dbus_module
 sys.modules["dbus.mainloop"] = dbus_mainloop_module
 sys.modules["dbus.mainloop.glib"] = dbus_glib_module
+sys.modules["dbus.exceptions"] = dbus_exceptions_module
 
 gi_module = types.ModuleType("gi")
 gi_repository_module = types.ModuleType("gi.repository")

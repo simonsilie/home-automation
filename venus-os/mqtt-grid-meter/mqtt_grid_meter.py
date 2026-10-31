@@ -7,18 +7,20 @@ import os
 import ssl
 import sys
 import threading
+import time
 from typing import Callable, Optional, Tuple
 
 sys.path.insert(0, "/opt/victronenergy/dbus-systemcalc-py/ext/velib_python")
 
 import dbus.mainloop.glib  # noqa: F401  (setting up the default D-Bus main loop)
+import dbus.exceptions  # noqa: F401  (referenced by the name-collision guard in main)
 from vedbus import VeDbusService
 
 from config import BridgeConfig, MeterSettings
 from meter import MeterBackend, MeterState, REGISTERED_DBUS_PATHS, TopicMap, load_mappings, resolve_message
 from simple_mqtt import SimpleMqttClient
 
-VERSION = "0.1.5"
+VERSION = "0.1.6"
 
 
 class DbusMeterBackend:
@@ -104,7 +106,20 @@ def main() -> None:
     args = parser.parse_args()
     from app import BridgeApp
 
-    BridgeApp(GridMeterService(load_config(args.config))).run()
+    try:
+        app = BridgeApp(GridMeterService(load_config(args.config)))
+    except dbus.exceptions.NameExistsException:
+        # daemontools restarts this service on every exit; keep the tarpit log
+        # readable while another process holds the bus name (usually a copy
+        # whose supervise parent is gone).
+        print(
+            "D-Bus service name already in use; check for an orphaned "
+            "mqtt_grid_meter.py process (one without a supervise parent) and kill it",
+            file=sys.stderr,
+        )
+        time.sleep(60)
+        raise
+    app.run()
 
 
 if __name__ == "__main__":
