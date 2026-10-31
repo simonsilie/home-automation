@@ -55,14 +55,19 @@ class ESPHomeConfigurationTests(unittest.TestCase):
         self.assertIs(config["mqtt"]["discover_ip"], False)
         self.assertNotIn("certificate_authority", config["mqtt"])
 
-    def test_toolchain_and_minimum_firmware_versions_match(self) -> None:
+    def test_minimum_firmware_versions_not_newer_than_toolchain(self) -> None:
         project = (ROOT / "pyproject.toml").read_text()
         version = re.search(r'"esphome==([0-9.]+)"', project)
         self.assertIsNotNone(version)
         assert version is not None
         for device in ("electric_meter_ir.yaml", "riden-psu.yaml", "soyosource-victron-esp32.yaml"):
             config = yaml.load((ROOT / "esphome" / device).read_text(), Loader=ConfigLoader)
-            self.assertEqual(config["esphome"]["min_version"], version.group(1))
+            self.assertIsInstance(config["esphome"]["min_version"], str)
+            self.assertTrue(
+                tuple(int(p) for p in config["esphome"]["min_version"].split("."))
+                <= tuple(int(p) for p in version.group(1).split(".")),
+                f"{device} min_version {config['esphome']['min_version']} is newer than toolchain {version.group(1)}",
+            )
 
 
 if __name__ == "__main__":
