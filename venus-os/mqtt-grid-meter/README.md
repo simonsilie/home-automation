@@ -183,17 +183,65 @@ the remaining bytes as a new packet.
 
 The Cerbo device list should then show a grid meter named `MQTT IR Grid Meter`.
 
+## Redeploy On Cerbo GX
+
+`tools/deploy-venus.sh root@<cerbo-ip>` automates the steps below: it runs the
+unit tests, builds the archive, and only then stops the service and kills
+orphans (so a local failure never takes the meter down), extracts in place,
+fixes ownership, restarts, and verifies a steady pid, a single `supervise`
+watcher, the deployed `/Mgmt/ProcessVersion` against the repository, and
+`/Connected` (polled, since it stays 0 until the first fresh publish after the
+restart). The commands it runs are documented here for debugging and manual
+deploys.
+
 When upgrading an existing installation, copy all five Python files
 (`mqtt_grid_meter.py`, `simple_mqtt.py`, `meter.py`, `app.py`, `config.py`) and keep the
 Cerbo's existing `config.ini` (do not overwrite it with the new TLS example).
 Configs without `tls` remain plaintext on their configured port, or `1883` by
 default; explicitly add `tls = false` if retaining that legacy LAN-only mode.
 Migrate to `tls = true` only after checking the broker TLS listener, certificate
-hostname, and CA trust. Set `stale_seconds = 20` and restart the service:
+hostname, and CA trust. Set `stale_seconds = 20`.
+
+Before replacing files, first stop the service and kill whatever is still
+running. Anything running under a held-down supervisor is an orphan that
+continues to hold the D-Bus service name — a new copy fails with
+`NameExistsException` and the supervised service crash-loops. The entry point
+catches this and logs one plain line ("D-Bus service name already in use;
+check for an orphaned mqtt_grid_meter.py process") with a 60 s backoff between
+restarts, instead of dumping a traceback into the log every second. Watch for
+processes whose `supervise` parent is gone (e.g. from a boot before your last
+reboot, or severed supervision after `/service` was rebuilt), and for stale
+`supervise`/`multilog` watchers of a deleted directory:
 
 ```sh
-svc -t /service/mqtt-grid-meter
+svc -d /service/mqtt-grid-meter
+sleep 2
+ps w | grep "[m]qtt_grid_meter.py"   # leftovers are now all orphans — kill them
+svc -u /service/mqtt-grid-meter
 ```
+
+Extract in place over the existing tree; do **not** delete and recreate the
+directory while it is supervised. `supervise` holds the directory by inode: a
+delete-and-recreate orphanes the old supervisor, `svscan` spawns a second one,
+and the two copies then fight over the D-Bus name, crash-looping the
+supervised service. When a full directory swap is required, reboot instead.
+
+Prefer a tar pipe over `scp -r` when copying: scp copies *into* an existing
+directory as a nested `mqtt-grid-meter/` copy, and a macOS tar stream carries
+`__pycache__` and AppleDouble `._` entries. Clean up after any transfer and
+fix ownership:
+
+```sh
+find /data/etc/mqtt-grid-meter -name '._*' -delete
+chown -R root:root /data/etc/mqtt-grid-meter
+chmod +x /data/etc/mqtt-grid-meter/service/run /data/etc/mqtt-grid-meter/service/log/run
+```
+
+`svstat /service/mqtt-grid-meter` must show a steady pid; changing pids every
+few seconds means the bridge is crash-looping. If supervisor debris persists
+(duplicate `supervise` entries in `ps w`, zombie `multilog` children), a reboot
+is the reliable cleanup: Venus rebuilds `/service` from `/data/rc.local` at
+boot, which also restarts the bridge hook.
 
 ## ESPHome Topics
 
@@ -248,6 +296,14 @@ After a reboot, verify that the boot hook recreated the service link:
 ```sh
 ls -l /service/mqtt-grid-meter
 dbus -y com.victronenergy.grid.mqtt_ir_grid_meter /Connected GetValue
+```
+
+`/Connected` must be `1` before ESS will use this meter. If the `dbus` tool
+ends up on the session bus (autolaunch failure hinting at X11), read the value
+explicitly instead — this always works over SSH:
+
+```sh
+DBUS_SYSTEM_BUS_ADDRESS=unix:path=/var/run/dbus/system_bus_socket python3 -c 'import dbus; print(dbus.SystemBus().get_object("com.victronenergy.grid.mqtt_ir_grid_meter", "/Connected").GetValue())'
 ```
 
 ## Development Checks
