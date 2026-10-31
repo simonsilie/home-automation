@@ -32,6 +32,7 @@ jobs:
           venus-os/mqtt-grid-meter/boot.sh
           venus-os/mqtt-grid-meter/service/run
           venus-os/mqtt-grid-meter/service/log/run
+          tools/deploy-venus.sh
 
   bridge-python312:
     runs-on: ubuntu-latest
